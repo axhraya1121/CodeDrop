@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Header from '@/components/Header';
 import DropZone from '@/components/DropZone';
 import FileRow from '@/components/FileRow';
+import StorageBar from '@/components/StorageBar';
 
 interface FileData {
   id: string;
@@ -19,6 +20,8 @@ export default function Dashboard() {
   const [uploadProgress, setUploadProgress] = useState<{ fileName: string; percent: number } | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [username, setUsername] = useState('User');
+
+  const totalUsedBytes = files.reduce((acc, f) => acc + (f.size || 0), 0);
 
   const fetchFiles = async () => {
     try {
@@ -158,6 +161,9 @@ export default function Dashboard() {
       
       <main className="max-w-5xl mx-auto px-4 md:px-8 py-10 pt-24">
         
+        {/* Storage Bar */}
+        <StorageBar usedBytes={totalUsedBytes} />
+
         {/* Upload Section */}
         <section className="mb-12">
           {uploadError && (
