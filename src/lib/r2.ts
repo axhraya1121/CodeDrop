@@ -1,4 +1,11 @@
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { 
+  S3Client, 
+  PutObjectCommand, 
+  GetObjectCommand, 
+  DeleteObjectCommand,
+  ListObjectVersionsCommand,
+  DeleteObjectsCommand
+} from '@aws-sdk/client-s3';
 import { uploadFile as uploadSupabase, downloadFile as downloadSupabase, deleteFile as deleteSupabase } from './supabase';
 
 export function getS3Client(): S3Client | null {
@@ -65,6 +72,10 @@ export async function downloadFile(path: string): Promise<Blob> {
   return new Blob([Buffer.from(bytes)]);
 }
 
+/**
+ * Permanently deletes a file and ALL of its object versions & delete markers
+ * from Backblaze B2 / S3 storage so it never leaves hidden 0-byte markers or (2) version copies.
+ */
 export async function deleteFile(path: string): Promise<void> {
   const s3 = getS3Client();
 
@@ -75,6 +86,53 @@ export async function deleteFile(path: string): Promise<void> {
 
   const bucket = process.env.S3_BUCKET_NAME || process.env.R2_BUCKET_NAME || process.env.SUPABASE_STORAGE_BUCKET || 'codedrop-files';
 
+  try {
+    // 1. List all versions and delete markers for this specific object key in Backblaze B2
+    const versionsResponse = await s3.send(
+      new ListObjectVersionsCommand({
+        Bucket: bucket,
+        Prefix: path,
+      })
+    );
+
+    const objectsToDelete: { Key: string; VersionId?: string }[] = [];
+
+    // Collect all matching file versions
+    if (versionsResponse.Versions) {
+      for (const v of versionsResponse.Versions) {
+        if (v.Key === path && v.VersionId) {
+          objectsToDelete.push({ Key: v.Key, VersionId: v.VersionId });
+        }
+      }
+    }
+
+    // Collect all matching delete markers
+    if (versionsResponse.DeleteMarkers) {
+      for (const dm of versionsResponse.DeleteMarkers) {
+        if (dm.Key === path && dm.VersionId) {
+          objectsToDelete.push({ Key: dm.Key, VersionId: dm.VersionId });
+        }
+      }
+    }
+
+    // 2. Permanently delete all collected versions and markers at once
+    if (objectsToDelete.length > 0) {
+      await s3.send(
+        new DeleteObjectsCommand({
+          Bucket: bucket,
+          Delete: {
+            Objects: objectsToDelete,
+            Quiet: true,
+          },
+        })
+      );
+      return;
+    }
+  } catch (versionError: any) {
+    console.warn('[Storage Delete] Version listing notice (falling back to standard delete):', versionError?.message);
+  }
+
+  // Fallback: Standard DeleteObjectCommand
   await s3.send(
     new DeleteObjectCommand({
       Bucket: bucket,
