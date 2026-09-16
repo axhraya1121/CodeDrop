@@ -15,6 +15,7 @@ interface FileData {
 
 export default function Dashboard() {
   const [files, setFiles] = useState<FileData[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ fileName: string; percent: number } | null>(null);
@@ -29,11 +30,13 @@ export default function Dashboard() {
       const res = await fetch('/api/files');
       if (res.ok) {
         const data = await res.json();
-        setFiles(Array.isArray(data) ? data : (data.files || []));
+        const fileList = Array.isArray(data) ? data : (data.files || []);
+        setFiles(fileList);
+        setSelectedIds(prev => new Set(Array.from(prev).filter(id => fileList.some((f: FileData) => f.id === id))));
       }
     } catch (err) {
       console.error('Error fetching files:', err);
-    } fontally: {
+    } finally {
       setLoading(false);
     }
   };
@@ -44,7 +47,6 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    // Tab session verification
     const activeSession = sessionStorage.getItem('codedrop_active_session');
     if (!activeSession) {
       fetch('/api/auth/logout', { method: 'POST' }).finally(() => {
@@ -53,7 +55,6 @@ export default function Dashboard() {
       return;
     }
 
-    // Fetch user profile
     fetch('/api/auth/me')
       .then(res => res.ok ? res.json() : null)
       .then(data => {
@@ -63,6 +64,26 @@ export default function Dashboard() {
 
     fetchFiles();
   }, []);
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === files.length && files.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(files.map(f => f.id)));
+    }
+  };
+
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
 
   const handleUpload = async (fileList: FileList) => {
     const filesToUpload = Array.from(fileList);
@@ -133,14 +154,17 @@ export default function Dashboard() {
 
     const targetFile = files.find(f => f.id === id);
     setFiles(prev => prev.filter(f => f.id !== id));
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
     setUploadError(null);
 
     try {
       const res = await fetch(`/api/files/${encodeURIComponent(id)}`, {
         method: 'DELETE',
-        headers: {
-          'Cache-Control': 'no-cache'
-        }
+        headers: { 'Cache-Control': 'no-cache' }
       });
       
       if (!res.ok) {
@@ -153,13 +177,76 @@ export default function Dashboard() {
         } catch {
           setUploadError(`Delete failed with HTTP status ${res.status}`);
         }
+      } else {
+        showToast('File deleted successfully.');
       }
     } catch (err: any) {
-      console.error('Delete network error:', err);
       if (targetFile) {
         setFiles(prev => prev.some(f => f.id === id) ? prev : [...prev, targetFile]);
       }
       setUploadError(err.message || 'Network error while deleting file');
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    if (!confirm(`Are you sure you want to delete ${ids.length} selected files?`)) return;
+
+    const previousFiles = [...files];
+    setFiles(prev => prev.filter(f => !selectedIds.has(f.id)));
+    setSelectedIds(new Set());
+    setUploadError(null);
+
+    try {
+      const res = await fetch('/api/files/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileIds: ids }),
+      });
+
+      if (!res.ok) {
+        setFiles(previousFiles);
+        const data = await res.json();
+        setUploadError(data.error || 'Failed to delete selected files');
+      } else {
+        const data = await res.json();
+        showToast(`${data.deletedCount || ids.length} files deleted successfully.`);
+        await fetchFiles();
+      }
+    } catch (err: any) {
+      setFiles(previousFiles);
+      setUploadError('Network error deleting selected files.');
+    }
+  };
+
+  const handleDeleteAll = async () => {
+    if (files.length === 0) return;
+    if (!confirm('WARNING: Are you sure you want to delete ALL files from your vault? This cannot be undone.')) return;
+
+    const previousFiles = [...files];
+    setFiles([]);
+    setSelectedIds(new Set());
+    setUploadError(null);
+
+    try {
+      const res = await fetch('/api/files/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deleteAll: true }),
+      });
+
+      if (!res.ok) {
+        setFiles(previousFiles);
+        const data = await res.json();
+        setUploadError(data.error || 'Failed to purge vault');
+      } else {
+        showToast('All files purged from vault.');
+        await fetchFiles();
+      }
+    } catch (err) {
+      setFiles(previousFiles);
+      setUploadError('Network error purging vault.');
     }
   };
 
@@ -219,7 +306,7 @@ export default function Dashboard() {
 
         {/* Files Section */}
         <section>
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
             <div className="flex items-center gap-3">
               <h2 className="text-headline-md font-bold text-on-surface dark:text-slate-100">Your Files</h2>
               {!loading && (
@@ -229,16 +316,43 @@ export default function Dashboard() {
               )}
             </div>
 
-            {/* Share Entire Vault Button */}
-            <button
-              type="button"
-              onClick={handleShareVault}
-              className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-surface-container dark:bg-slate-800 hover:bg-primary/10 text-primary dark:text-primary-fixed-dim font-mono text-label-sm font-semibold transition-colors border border-outline-variant/30 dark:border-slate-700"
-              title="Share link to your entire public storage"
-            >
-              <span className="material-symbols-outlined text-[18px]">folder_shared</span>
-              Share Vault
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Delete Selected Button */}
+              {selectedIds.size > 0 && (
+                <button
+                  type="button"
+                  onClick={handleDeleteSelected}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 font-mono text-label-sm font-semibold transition-colors border border-rose-500/20"
+                >
+                  <span className="material-symbols-outlined text-[18px]">delete</span>
+                  Delete Selected ({selectedIds.size})
+                </button>
+              )}
+
+              {/* Share Entire Vault Button */}
+              <button
+                type="button"
+                onClick={handleShareVault}
+                className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-surface-container dark:bg-slate-800 hover:bg-primary/10 text-primary dark:text-primary-fixed-dim font-mono text-label-sm font-semibold transition-colors border border-outline-variant/30 dark:border-slate-700"
+                title="Share link to your entire public storage"
+              >
+                <span className="material-symbols-outlined text-[18px]">folder_shared</span>
+                Share Vault
+              </button>
+
+              {/* Delete All Files Button */}
+              {files.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleDeleteAll}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-container dark:bg-slate-800 hover:bg-rose-500/10 text-on-surface-variant dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 font-mono text-label-sm font-medium transition-colors border border-outline-variant/30 dark:border-slate-700"
+                  title="Purge all files from storage"
+                >
+                  <span className="material-symbols-outlined text-[18px]">delete_sweep</span>
+                  Delete All
+                </button>
+              )}
+            </div>
           </div>
 
           {loading ? (
@@ -261,8 +375,17 @@ export default function Dashboard() {
           ) : (
             <div className="bg-surface-container-lowest dark:bg-slate-900 rounded-2xl shadow-sm overflow-hidden border border-outline-variant/20 dark:border-slate-800">
               {/* Table Header */}
-              <div className="hidden md:grid md:grid-cols-12 md:gap-4 bg-surface-container-low dark:bg-slate-800/80 px-6 py-3 border-b border-outline-variant/20 dark:border-slate-800">
-                <div className="col-span-6 text-label-sm text-on-surface-variant dark:text-slate-400 uppercase tracking-wider font-mono font-medium">File Name</div>
+              <div className="hidden md:grid md:grid-cols-12 md:gap-4 bg-surface-container-low dark:bg-slate-800/80 px-6 py-3 border-b border-outline-variant/20 dark:border-slate-800 items-center">
+                <div className="col-span-6 flex items-center gap-3 text-label-sm text-on-surface-variant dark:text-slate-400 uppercase tracking-wider font-mono font-medium">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.size === files.length && files.length > 0}
+                    onChange={toggleSelectAll}
+                    className="w-4 h-4 rounded border-outline dark:border-slate-600 text-primary focus:ring-primary focus:ring-offset-0 cursor-pointer"
+                    title="Select All Files"
+                  />
+                  File Name
+                </div>
                 <div className="col-span-2 text-label-sm text-on-surface-variant dark:text-slate-400 uppercase tracking-wider font-mono font-medium">Size</div>
                 <div className="col-span-2 text-label-sm text-on-surface-variant dark:text-slate-400 uppercase tracking-wider font-mono font-medium">Uploaded</div>
                 <div className="col-span-2 text-label-sm text-on-surface-variant dark:text-slate-400 uppercase tracking-wider font-mono font-medium text-right">Actions</div>
@@ -274,6 +397,8 @@ export default function Dashboard() {
                   <FileRow 
                     key={file.id} 
                     file={file} 
+                    isSelected={selectedIds.has(file.id)}
+                    onSelectToggle={toggleSelectOne}
                     onDownload={handleDownload} 
                     onDelete={handleDelete}
                     onShare={handleShareFile}

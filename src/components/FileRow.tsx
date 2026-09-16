@@ -11,12 +11,21 @@ interface FileData {
 
 interface FileRowProps {
   file: FileData;
+  isSelected: boolean;
+  onSelectToggle: (id: string) => void;
   onDownload: (id: string) => void;
   onDelete: (id: string) => void;
   onShare: (id: string) => void;
 }
 
-export default function FileRow({ file, onDownload, onDelete, onShare }: FileRowProps) {
+export default function FileRow({ 
+  file, 
+  isSelected, 
+  onSelectToggle, 
+  onDownload, 
+  onDelete, 
+  onShare 
+}: FileRowProps) {
   const [copied, setCopied] = useState(false);
 
   const handleShareClick = (e: React.MouseEvent) => {
@@ -63,10 +72,21 @@ export default function FileRow({ file, onDownload, onDelete, onShare }: FileRow
   };
 
   return (
-    <div className="group flex flex-col md:grid md:grid-cols-12 md:items-center gap-3 md:gap-4 px-5 sm:px-6 py-4 transition-colors hover:bg-surface-container-low dark:hover:bg-slate-800/60 border-b border-outline-variant/10 dark:border-slate-800/60 last:border-0">
+    <div className={`group flex flex-col md:grid md:grid-cols-12 md:items-center gap-3 md:gap-4 px-5 sm:px-6 py-4 transition-colors border-b border-outline-variant/10 dark:border-slate-800/60 last:border-0 ${
+      isSelected 
+        ? 'bg-primary/5 dark:bg-slate-800/90' 
+        : 'hover:bg-surface-container-low dark:hover:bg-slate-800/60'
+    }`}>
       
-      {/* File Identity */}
-      <div className="col-span-6 flex items-center gap-4 overflow-hidden">
+      {/* Selection Checkbox & File Identity */}
+      <div className="col-span-6 flex items-center gap-3 overflow-hidden">
+        <input 
+          type="checkbox"
+          checked={isSelected}
+          onChange={() => onSelectToggle(file.id)}
+          onClick={(e) => e.stopPropagation()}
+          className="w-4 h-4 rounded border-outline dark:border-slate-600 text-primary focus:ring-primary focus:ring-offset-0 cursor-pointer shrink-0"
+        />
         <div className="w-10 h-10 shrink-0 rounded-xl bg-surface-container dark:bg-slate-800 flex items-center justify-center text-primary dark:text-primary-fixed-dim shadow-sm">
           <span className="material-symbols-outlined text-[22px]">{getFileIcon(file.fileName)}</span>
         </div>
