@@ -1,5 +1,7 @@
 'use client';
 
+import { useState } from 'react';
+
 interface FileData {
   id: string;
   fileName: string;
@@ -11,9 +13,19 @@ interface FileRowProps {
   file: FileData;
   onDownload: (id: string) => void;
   onDelete: (id: string) => void;
+  onShare: (id: string) => void;
 }
 
-export default function FileRow({ file, onDownload, onDelete }: FileRowProps) {
+export default function FileRow({ file, onDownload, onDelete, onShare }: FileRowProps) {
+  const [copied, setCopied] = useState(false);
+
+  const handleShareClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onShare(file.id);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   const getFileIcon = (fileName: string): string => {
     const ext = fileName.split('.').pop()?.toLowerCase() || '';
     if (['zip', 'tar', 'gz', 'rar'].includes(ext)) return 'folder_zip';
@@ -89,6 +101,23 @@ export default function FileRow({ file, onDownload, onDelete }: FileRowProps) {
           <span className="text-body-sm">• {formatDate(file.uploadedAt)}</span>
         </div>
         
+        {/* Share Button */}
+        <button
+          type="button"
+          onClick={handleShareClick}
+          className={`w-9 h-9 flex items-center justify-center rounded-lg transition-colors focus:outline-none ${
+            copied 
+              ? 'text-tertiary dark:text-emerald-400 bg-tertiary/10 dark:bg-emerald-950/40' 
+              : 'text-on-surface-variant dark:text-slate-400 hover:text-primary dark:hover:text-primary-fixed-dim hover:bg-primary/10 dark:hover:bg-primary/20'
+          }`}
+          title={copied ? "Link Copied!" : "Share Link"}
+        >
+          <span className="material-symbols-outlined text-[20px]">
+            {copied ? 'check' : 'share'}
+          </span>
+        </button>
+
+        {/* Download Button */}
         <button
           type="button"
           onClick={(e) => {
@@ -100,6 +129,8 @@ export default function FileRow({ file, onDownload, onDelete }: FileRowProps) {
         >
           <span className="material-symbols-outlined text-[20px]">download</span>
         </button>
+
+        {/* Delete Button */}
         <button
           type="button"
           onClick={(e) => {

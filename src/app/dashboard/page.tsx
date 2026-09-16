@@ -20,6 +20,7 @@ export default function Dashboard() {
   const [uploadProgress, setUploadProgress] = useState<{ fileName: string; percent: number } | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [username, setUsername] = useState('User');
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const totalUsedBytes = files.reduce((acc, f) => acc + (f.size || 0), 0);
 
@@ -32,87 +33,78 @@ export default function Dashboard() {
       }
     } catch (err) {
       console.error('Error fetching files:', err);
-    } finally {
+    } fontally: {
       setLoading(false);
     }
   };
 
-  const fetchUser = async () => {
-    try {
-      const res = await fetch('/api/auth/me');
-      if (res.ok) {
-        const data = await res.json();
-        setUsername(data.username);
-      }
-    } catch (err) {
-      console.error('Error fetching user:', err);
-    }
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3000);
   };
 
   useEffect(() => {
-    const isTabSessionActive = sessionStorage.getItem('codedrop_active_session');
-    if (!isTabSessionActive) {
-      // Tab was closed or reopened — clear session and force login
-      fetch('/api/auth/logout', { method: 'POST' }).then(() => {
+    // Tab session verification
+    const activeSession = sessionStorage.getItem('codedrop_active_session');
+    if (!activeSession) {
+      fetch('/api/auth/logout', { method: 'POST' }).finally(() => {
         window.location.href = '/';
       });
       return;
     }
 
+    // Fetch user profile
+    fetch('/api/auth/me')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.username) setUsername(data.username);
+      })
+      .catch(() => {});
+
     fetchFiles();
-    fetchUser();
   }, []);
 
-  const uploadSingleFile = (file: File): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      const formData = new FormData();
-      formData.append('file', file);
-
-      setUploadProgress({ fileName: file.name, percent: 0 });
-
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable) {
-          const percentComplete = Math.round((event.loaded / event.total) * 100);
-          setUploadProgress({ fileName: file.name, percent: percentComplete });
-        }
-      };
-
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          resolve();
-        } else {
-          try {
-            const res = JSON.parse(xhr.responseText);
-            reject(new Error(res.error || 'Upload failed'));
-          } catch {
-            reject(new Error(`Upload failed with status ${xhr.status}`));
-          }
-        }
-      };
-
-      xhr.onerror = () => reject(new Error('Network error during upload'));
-      xhr.open('POST', '/api/files/upload', true);
-      xhr.send(formData);
-    });
-  };
-
-  const handleUpload = async (fileList: FileList) => {
+  const handleUpload = (fileList: FileList) => {
+    if (fileList.length === 0) return;
     setUploading(true);
     setUploadError(null);
 
-    try {
-      for (let i = 0; i < fileList.length; i++) {
-        await uploadSingleFile(fileList[i]);
+    const file = fileList[0];
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/files/upload', true);
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        const percent = Math.round((e.loaded / e.total) * 100);
+        setUploadProgress({ fileName: file.name, percent });
       }
-      await fetchFiles();
-    } catch (err: any) {
-      console.error('Upload error:', err);
-      setUploadError(err.message || 'Upload failed. Please check database/storage configuration.');
-    } finally {
+    };
+
+    xhr.onload = async () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        await fetchFiles();
+      } else {
+        try {
+          const data = JSON.parse(xhr.responseText);
+          setUploadError(data.error || 'Upload failed. Storage limit or network issue.');
+        } catch {
+          setUploadError(`Upload failed with status ${xhr.status}`);
+        }
+      }
       setUploading(false);
       setTimeout(() => setUploadProgress(null), 1000);
-    }
+    };
+
+    xhr.onerror = () => {
+      setUploadError('Network error during file upload.');
+      setUploading(false);
+      setTimeout(() => setUploadProgress(null), 1000);
+    };
+
+    xhr.send(formData);
   };
 
   const handleDelete = async (id: string) => {
@@ -131,7 +123,6 @@ export default function Dashboard() {
       });
       
       if (!res.ok) {
-        // Safe rollback using functional update
         if (targetFile) {
           setFiles(prev => prev.some(f => f.id === id) ? prev : [...prev, targetFile]);
         }
@@ -155,10 +146,30 @@ export default function Dashboard() {
     window.open(`/api/files/${id}/download`, '_blank');
   };
 
+  const handleShareFile = (id: string) => {
+    const url = `${window.location.origin}/share/file/${id}`;
+    navigator.clipboard.writeText(url);
+    showToast('Public file link copied to clipboard!');
+  };
+
+  const handleShareVault = () => {
+    const url = `${window.location.origin}/share/vault/${username}`;
+    navigator.clipboard.writeText(url);
+    showToast('Public vault link copied to clipboard!');
+  };
+
   return (
     <div className="min-h-screen bg-background text-on-surface">
       <Header username={username} />
       
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 bg-surface-container-lowest dark:bg-slate-900 text-on-surface dark:text-slate-100 px-4 py-3 rounded-xl shadow-lg border border-primary/30 dark:border-primary-fixed-dim/30 flex items-center gap-2 font-mono text-label-md animate-bounce">
+          <span className="material-symbols-outlined text-tertiary dark:text-emerald-400 text-[18px]">check_circle</span>
+          {toastMessage}
+        </div>
+      )}
+
       <main className="max-w-5xl mx-auto px-4 md:px-8 py-10 pt-24">
         
         {/* Storage Bar */}
@@ -187,13 +198,26 @@ export default function Dashboard() {
 
         {/* Files Section */}
         <section>
-          <div className="flex items-center gap-3 mb-6">
-            <h2 className="text-headline-md font-bold text-on-surface dark:text-slate-100">Your Files</h2>
-            {!loading && (
-              <span className="px-2.5 py-0.5 rounded-full bg-surface-container dark:bg-slate-800 text-on-surface-variant dark:text-slate-300 text-label-sm font-mono">
-                {files.length}
-              </span>
-            )}
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <h2 className="text-headline-md font-bold text-on-surface dark:text-slate-100">Your Files</h2>
+              {!loading && (
+                <span className="px-2.5 py-0.5 rounded-full bg-surface-container dark:bg-slate-800 text-on-surface-variant dark:text-slate-300 text-label-sm font-mono">
+                  {files.length}
+                </span>
+              )}
+            </div>
+
+            {/* Share Entire Vault Button */}
+            <button
+              type="button"
+              onClick={handleShareVault}
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-surface-container dark:bg-slate-800 hover:bg-primary/10 text-primary dark:text-primary-fixed-dim font-mono text-label-sm font-semibold transition-colors border border-outline-variant/30 dark:border-slate-700"
+              title="Share link to your entire public storage"
+            >
+              <span className="material-symbols-outlined text-[18px]">folder_shared</span>
+              Share Vault
+            </button>
           </div>
 
           {loading ? (
@@ -230,7 +254,8 @@ export default function Dashboard() {
                     key={file.id} 
                     file={file} 
                     onDownload={handleDownload} 
-                    onDelete={handleDelete} 
+                    onDelete={handleDelete}
+                    onShare={handleShareFile}
                   />
                 ))}
               </div>
