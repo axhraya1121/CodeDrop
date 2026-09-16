@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import JSZip from 'jszip';
 import Header from '@/components/Header';
 import DropZone from '@/components/DropZone';
@@ -11,6 +11,7 @@ import GlobalDragOverlay from '@/components/GlobalDragOverlay';
 import StorageAnalyticsWidget from '@/components/StorageAnalyticsWidget';
 import ShareConfigModal from '@/components/ShareConfigModal';
 import ShareVaultModal from '@/components/ShareVaultModal';
+import LinkAnalyticsModal from '@/components/LinkAnalyticsModal';
 
 interface FileData {
   id: string;
@@ -28,14 +29,17 @@ export default function Dashboard() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [username, setUsername] = useState('User');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [burnToast, setBurnToast] = useState<string | null>(null);
+  const seenBurnIds = useRef<Set<string>>(new Set());
   
-  // New State Features
+  // State Features
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState<'all' | 'documents' | 'media' | 'code' | 'zip'>('all');
   const [previewFile, setPreviewFile] = useState<FileData | null>(null);
   const [shareConfigModalFile, setShareConfigModalFile] = useState<FileData | null>(null);
   const [shareVaultModalOpen, setShareVaultModalOpen] = useState(false);
   const [shareVaultIsSelected, setShareVaultIsSelected] = useState(false);
+  const [analyticsFileId, setAnalyticsFileId] = useState<string | null>(null);
   const [zipping, setZipping] = useState(false);
 
   const totalUsedBytes = files.reduce((acc, f) => acc + (f.size || 0), 0);
@@ -61,6 +65,25 @@ export default function Dashboard() {
     setTimeout(() => setToastMessage(null), 3000);
   };
 
+  const checkBurnNotifications = async () => {
+    try {
+      const res = await fetch('/api/notifications/burns');
+      if (res.ok) {
+        const burns = await res.json();
+        if (Array.isArray(burns) && burns.length > 0) {
+          const newest = burns[0];
+          if (newest && !seenBurnIds.current.has(newest.id)) {
+            seenBurnIds.current.add(newest.id);
+            setBurnToast(`🔥 Burn Alert: Link for '${newest.fileName}' self-destructed after access!`);
+            setTimeout(() => setBurnToast(null), 6000);
+          }
+        }
+      }
+    } catch (err) {
+      // Ignore background notification fetch errors silently
+    }
+  };
+
   useEffect(() => {
     const activeSession = sessionStorage.getItem('codedrop_active_session');
     if (!activeSession) {
@@ -78,9 +101,14 @@ export default function Dashboard() {
       .catch(() => {});
 
     fetchFiles();
+
+    // Burn notification listener poll every 10 seconds
+    checkBurnNotifications();
+    const interval = setInterval(checkBurnNotifications, 10000);
+    return () => clearInterval(interval);
   }, []);
 
-  // Filter & Search Logic (Feature #1)
+  // Filter & Search Logic
   const filteredFiles = useMemo(() => {
     return files.filter((file) => {
       const nameMatch = file.fileName.toLowerCase().includes(searchQuery.toLowerCase());
@@ -283,7 +311,7 @@ export default function Dashboard() {
     }
   };
 
-  // ZIP Download Logic (Feature #5)
+  // ZIP Download Logic
   const handleDownloadZip = async (selectedOnly = false) => {
     const targetList = selectedOnly 
       ? files.filter(f => selectedIds.has(f.id))
@@ -379,6 +407,14 @@ export default function Dashboard() {
         onCopied={showToast}
       />
 
+      {/* Link Analytics Modal */}
+      <LinkAnalyticsModal
+        isOpen={Boolean(analyticsFileId)}
+        fileId={analyticsFileId}
+        fileName={files.find(f => f.id === analyticsFileId)?.fileName}
+        onClose={() => setAnalyticsFileId(null)}
+      />
+
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 bg-surface-container-lowest dark:bg-slate-900 text-on-surface dark:text-slate-100 px-4 py-3 rounded-xl shadow-lg border border-primary/30 dark:border-primary-fixed-dim/30 flex items-center gap-2 font-mono text-label-md animate-bounce">
@@ -387,9 +423,17 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Instant Burn Alert Toast Notification */}
+      {burnToast && (
+        <div className="fixed top-20 right-6 z-50 bg-rose-950 text-rose-100 px-5 py-3.5 rounded-2xl shadow-2xl border border-rose-500/50 flex items-center gap-3 font-mono text-label-md animate-bounce max-w-md">
+          <span className="material-symbols-outlined text-rose-400 text-[24px]">local_fire_department</span>
+          <span>{burnToast}</span>
+        </div>
+      )}
+
       <main className="max-w-6xl mx-auto px-4 md:px-8 py-10 pt-24">
         
-        {/* Top 2-Column Section (Main Upload & Right Sidebar Widgets) */}
+        {/* Top 2-Column Section */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-10 items-stretch">
           {/* Left Main Column (7 cols): Upload DropZone */}
           <div className="lg:col-span-7 flex flex-col justify-center">
@@ -412,14 +456,14 @@ export default function Dashboard() {
             />
           </div>
 
-          {/* Right Side Column (5 cols): Storage Usage Widget (Top) + Storage Analytics Widget (Bottom) */}
+          {/* Right Side Column (5 cols): Storage Bar & Analytics */}
           <div className="lg:col-span-5 flex flex-col gap-6">
             <StorageBar usedBytes={totalUsedBytes} />
             <StorageAnalyticsWidget files={files} />
           </div>
         </div>
 
-        {/* Search & Category Filter Bar (Feature #1) */}
+        {/* Search & Category Filter Bar */}
         <section className="mb-8 bg-surface-container-lowest dark:bg-slate-900 border border-outline-variant/20 dark:border-slate-800 rounded-2xl p-4 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
           {/* Search Input */}
           <div className="relative flex items-center w-full md:max-w-md">
@@ -517,7 +561,7 @@ export default function Dashboard() {
                 </button>
               )}
 
-              {/* Download All as ZIP (Feature #5) */}
+              {/* Download All as ZIP */}
               {files.length > 0 && (
                 <button
                   type="button"
@@ -608,6 +652,7 @@ export default function Dashboard() {
                     onDelete={handleDelete}
                     onShare={handleShareFile}
                     onPreview={(f) => setPreviewFile(f)}
+                    onAnalytics={(fId) => setAnalyticsFileId(fId)}
                   />
                 ))}
               </div>

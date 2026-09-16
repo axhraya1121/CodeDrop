@@ -9,6 +9,7 @@ interface FileInfo {
   size: number;
   uploadedAt: string;
   owner: string;
+  viewOnly?: boolean;
 }
 
 export default function ShareFilePage({ params }: { params: { id: string } }) {
@@ -79,6 +80,7 @@ export default function ShareFilePage({ params }: { params: { id: string } }) {
   };
 
   const handleDownload = () => {
+    if (file?.viewOnly) return;
     window.open(`/api/public/files/${fileId}/download`, '_blank');
   };
 
@@ -104,7 +106,7 @@ export default function ShareFilePage({ params }: { params: { id: string } }) {
               Shared File
             </span>
           </h1>
-          <p className="text-body-sm text-on-surface-variant dark:text-slate-400 mt-1">Live preview & direct public download. No login required.</p>
+          <p className="text-body-sm text-on-surface-variant dark:text-slate-400 mt-1">Live preview & direct public access. No login required.</p>
         </div>
 
         {/* Card */}
@@ -124,6 +126,15 @@ export default function ShareFilePage({ params }: { params: { id: string } }) {
             </div>
           ) : file ? (
             <div className="flex flex-col gap-6">
+              
+              {/* View-Only Security Banner */}
+              {file.viewOnly && (
+                <div className="p-3 bg-tertiary/10 dark:bg-emerald-950/40 border border-tertiary/30 rounded-xl flex items-center gap-2.5 text-body-sm font-medium text-tertiary dark:text-emerald-300">
+                  <span className="material-symbols-outlined text-[20px]">lock</span>
+                  <span>🔒 View-Only Mode: Downloads & text copying are disabled by owner.</span>
+                </div>
+              )}
+
               {/* File Meta Bar */}
               <div className="flex items-center gap-4 p-4 rounded-xl bg-surface-container-low dark:bg-slate-800/80 border border-outline-variant/20 dark:border-slate-800">
                 <div className="w-12 h-12 shrink-0 rounded-xl bg-primary/10 dark:bg-primary/20 flex items-center justify-center text-primary dark:text-primary-fixed-dim">
@@ -140,7 +151,14 @@ export default function ShareFilePage({ params }: { params: { id: string } }) {
               </div>
 
               {/* Live Inline Preview Box */}
-              <div className="w-full min-h-[220px] max-h-[500px] overflow-auto rounded-xl border border-outline-variant/20 dark:border-slate-800 bg-surface dark:bg-[#070d18] p-4 flex items-center justify-center">
+              <div 
+                className={`w-full min-h-[220px] max-h-[500px] overflow-auto rounded-xl border border-outline-variant/20 dark:border-slate-800 bg-surface dark:bg-[#070d18] p-4 flex items-center justify-center ${
+                  file.viewOnly ? 'select-none' : ''
+                }`}
+                onContextMenu={(e) => {
+                  if (file.viewOnly) e.preventDefault();
+                }}
+              >
                 {category === 'image' && (
                   <img 
                     src={fileUrl} 
@@ -151,7 +169,8 @@ export default function ShareFilePage({ params }: { params: { id: string } }) {
 
                 {category === 'video' && (
                   <video 
-                    controls 
+                    controls={!file.viewOnly}
+                    controlsList={file.viewOnly ? 'nodownload' : undefined}
                     src={fileUrl} 
                     className="max-h-[460px] max-w-full rounded-lg shadow-sm" 
                   />
@@ -173,7 +192,9 @@ export default function ShareFilePage({ params }: { params: { id: string } }) {
                         <span className="text-body-sm font-mono text-on-surface-variant dark:text-slate-400">Loading text preview...</span>
                       </div>
                     ) : (
-                      <pre className="p-4 rounded-xl bg-slate-950 text-slate-100 font-mono text-body-sm leading-relaxed overflow-x-auto selection:bg-primary selection:text-white">
+                      <pre className={`p-4 rounded-xl bg-slate-950 text-slate-100 font-mono text-body-sm leading-relaxed overflow-x-auto ${
+                        file.viewOnly ? 'select-none' : 'selection:bg-primary selection:text-white'
+                      }`}>
                         <code>{textContent}</code>
                       </pre>
                     )}
@@ -184,20 +205,30 @@ export default function ShareFilePage({ params }: { params: { id: string } }) {
                   <div className="flex flex-col items-center justify-center text-center py-8 gap-2">
                     <span className="material-symbols-outlined text-[36px] text-on-surface-variant dark:text-slate-400">draft</span>
                     <p className="text-body-sm font-mono text-on-surface-variant dark:text-slate-400">
-                      No inline preview for this format. Download below to view.
+                      {file.viewOnly ? 'No inline preview available for this file type.' : 'No inline preview for this format. Download below to view.'}
                     </p>
                   </div>
                 )}
               </div>
 
-              {/* Download Action */}
-              <button
-                onClick={handleDownload}
-                className="w-full h-12 bg-primary hover:bg-primary-container dark:bg-primary-container text-on-primary font-semibold rounded-xl flex items-center justify-center gap-2 shadow-sm transition-all active:scale-[0.99]"
-              >
-                <span className="material-symbols-outlined text-[22px]">download</span>
-                Download File ({formatFileSize(file.size)})
-              </button>
+              {/* Download Action / View-Only Disabled Button */}
+              {file.viewOnly ? (
+                <button
+                  disabled
+                  className="w-full h-12 bg-surface-container text-on-surface-variant font-semibold rounded-xl flex items-center justify-center gap-2 cursor-not-allowed opacity-75"
+                >
+                  <span className="material-symbols-outlined text-[22px]">lock</span>
+                  Download Disabled (View-Only Mode)
+                </button>
+              ) : (
+                <button
+                  onClick={handleDownload}
+                  className="w-full h-12 bg-primary hover:bg-primary-container dark:bg-primary-container text-on-primary font-semibold rounded-xl flex items-center justify-center gap-2 shadow-sm transition-all active:scale-[0.99]"
+                >
+                  <span className="material-symbols-outlined text-[22px]">download</span>
+                  Download File ({formatFileSize(file.size)})
+                </button>
+              )}
 
               <div className="flex items-center justify-between text-label-sm text-on-surface-variant dark:text-slate-400 font-mono border-t border-outline-variant/20 dark:border-slate-800 pt-4">
                 <span>End-to-end Encrypted</span>

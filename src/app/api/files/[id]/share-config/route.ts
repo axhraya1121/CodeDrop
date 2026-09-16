@@ -26,7 +26,7 @@ export async function POST(
     fileId = decodeURIComponent(fileId || '').trim();
 
     const body = await request.json();
-    const { expiryOption } = body; // 'never' | '1_download' | '1_hour' | '24_hours' | '7_days'
+    const { expiryOption, viewOnly } = body; // 'never' | '1_download' | '1_hour' | '24_hours' | '7_days', viewOnly: boolean
 
     const file = await prisma.file.findFirst({
       where: { id: fileId, userId }
@@ -56,14 +56,16 @@ export async function POST(
       data: {
         expiresAt,
         maxDownloads,
-        downloadCount: 0 // Reset download count on fresh link configuration
+        downloadCount: 0,
+        viewOnly: Boolean(viewOnly),
       }
     });
 
     return NextResponse.json({
       success: true,
       expiresAt,
-      maxDownloads
+      maxDownloads,
+      viewOnly: Boolean(viewOnly),
     });
 
   } catch (error: any) {

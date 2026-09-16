@@ -47,6 +47,13 @@ export async function GET(
       return NextResponse.json({ error: 'File not found' }, { status: 404 });
     }
 
+    const isInline = request.nextUrl.searchParams.get('inline') === 'true';
+
+    // View-Only Enforcement: Block raw downloads if file is in View-Only mode and not an inline preview request
+    if (file.viewOnly && !isInline) {
+      return NextResponse.json({ error: 'Downloads are disabled for this file (View-Only Mode).' }, { status: 403 });
+    }
+
     // Expiration Check
     if (file.expiresAt && new Date() > new Date(file.expiresAt)) {
       return NextResponse.json({ error: 'This share link has expired.' }, { status: 410 });
@@ -61,13 +68,25 @@ export async function GET(
     const arrayBuffer = await blob.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    const isInline = request.nextUrl.searchParams.get('inline') === 'true';
+    const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || '127.0.0.1';
+    const userAgent = request.headers.get('user-agent') || 'Unknown';
 
-    // Increment download count if it's an actual file download (not an inline preview)
+    // Increment download count and record access log if it's an actual file download
     if (!isInline) {
-      await prisma.file.update({
+      const updated = await prisma.file.update({
         where: { id: fileId },
         data: { downloadCount: { increment: 1 } }
+      });
+
+      const isBurned = updated.maxDownloads !== null && updated.downloadCount >= updated.maxDownloads;
+
+      await prisma.linkAccessLog.create({
+        data: {
+          fileId: file.id,
+          accessType: isBurned ? 'BURN' : 'DOWNLOAD',
+          ipAddress,
+          userAgent,
+        }
       });
     }
 

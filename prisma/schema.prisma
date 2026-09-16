@@ -9,22 +9,47 @@ datasource db {
 }
 
 model User {
-  id           String   @id @default(uuid())
-  username     String   @unique
+  id           String     @id @default(uuid())
+  username     String     @unique
   passwordHash String
-  createdAt    DateTime @default(now())
+  createdAt    DateTime   @default(now())
   files        File[]
+  auditLogs    AuditLog[]
 }
 
 model File {
-  id            String    @id @default(uuid())
+  id            String          @id @default(uuid())
   userId        String
-  user          User      @relation(fields: [userId], references: [id])
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   fileName      String
   storagePath   String
   size          Int
-  uploadedAt    DateTime  @default(now())
+  uploadedAt    DateTime        @default(now())
   expiresAt     DateTime?
   maxDownloads  Int?
-  downloadCount Int       @default(0)
+  downloadCount Int             @default(0)
+  viewOnly      Boolean         @default(false)
+  viewCount     Int             @default(0)
+  accessLogs    LinkAccessLog[]
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action    String
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+}
+
+model LinkAccessLog {
+  id         String   @id @default(uuid())
+  fileId     String?
+  file       File?    @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  accessType String
+  ipAddress  String?
+  userAgent  String?
+  region     String?
+  accessedAt DateTime @default(now())
 }

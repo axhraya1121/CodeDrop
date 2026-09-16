@@ -17,6 +17,7 @@ interface FileRowProps {
   onDelete: (id: string) => void;
   onShare: (id: string) => void;
   onPreview: (file: FileData) => void;
+  onAnalytics?: (fileId: string) => void;
 }
 
 export default function FileRow({ 
@@ -26,7 +27,8 @@ export default function FileRow({
   onDownload, 
   onDelete, 
   onShare,
-  onPreview
+  onPreview,
+  onAnalytics
 }: FileRowProps) {
   const [copied, setCopied] = useState(false);
 
@@ -130,6 +132,21 @@ export default function FileRow({
           <span className="text-body-sm">• {formatDate(file.uploadedAt)}</span>
         </div>
         
+        {/* Analytics Button */}
+        {onAnalytics && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onAnalytics(file.id);
+            }}
+            className="w-9 h-9 flex items-center justify-center rounded-lg text-on-surface-variant dark:text-slate-400 hover:text-primary dark:hover:text-primary-fixed-dim hover:bg-primary/10 dark:hover:bg-primary/20 transition-colors focus:outline-none"
+            title="Link Analytics"
+          >
+            <span className="material-symbols-outlined text-[20px]">analytics</span>
+          </button>
+        )}
+
         {/* Preview Button */}
         <button
           type="button"
