@@ -11,14 +11,15 @@ const CHUNK_SIZE = 64 * 1024; // 64 KB binary chunks
 
 export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PTransferModalProps) {
   const [role, setRole] = useState<'sender' | 'receiver'>(initialRoomId ? 'receiver' : 'sender');
-  const [roomId, setRoomId] = useState<string>(initialRoomId || '');
+  const [p2pCode, setP2pCode] = useState<string>(initialRoomId ? initialRoomId.replace(/^p2p-/, '') : '');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [status, setStatus] = useState<string>('idle');
   const [progress, setProgress] = useState<number>(0);
   const [transferredBytes, setTransferredBytes] = useState<number>(0);
   const [transferSpeed, setTransferSpeed] = useState<string>('0 MB/s');
   const [p2pUrl, setP2pUrl] = useState<string>('');
-  const [copied, setCopied] = useState<boolean>(false);
+  const [copiedCode, setCopiedCode] = useState<boolean>(false);
+  const [copiedUrl, setCopiedUrl] = useState<boolean>(false);
   const [receivedFileName, setReceivedFileName] = useState<string>('');
   const [receivedFileSize, setReceivedFileSize] = useState<number>(0);
 
@@ -29,18 +30,21 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
   const startTimeRef = useRef<number>(0);
   const signalIntervalRef = useRef<any>(null);
 
-  // Generate a room ID if in sender mode
+  const activeRoomId = p2pCode ? `p2p-${p2pCode.toLowerCase().replace(/[^a-z0-9]/g, '')}` : '';
+
+  // Generate a clean 6-digit numeric P2P code if in sender mode
   useEffect(() => {
-    if (role === 'sender' && !roomId) {
-      const newRoom = 'p2p-' + Math.random().toString(36).substring(2, 9);
-      setRoomId(newRoom);
-      if (typeof window !== 'undefined') {
-        setP2pUrl(`${window.location.origin}/p2p?room=${newRoom}`);
-      }
-    } else if (role === 'receiver' && roomId && typeof window !== 'undefined') {
-      setP2pUrl(`${window.location.origin}/p2p?room=${roomId}`);
+    if (role === 'sender' && !p2pCode) {
+      const random6Digit = Math.floor(100000 + Math.random() * 900000).toString();
+      setP2pCode(random6Digit);
     }
-  }, [role, roomId]);
+  }, [role, p2pCode]);
+
+  useEffect(() => {
+    if (p2pCode && typeof window !== 'undefined') {
+      setP2pUrl(`${window.location.origin}/p2p?room=${p2pCode}`);
+    }
+  }, [p2pCode]);
 
   const setupPeerConnection = () => {
     const pc = new RTCPeerConnection({
@@ -51,12 +55,12 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
     });
 
     pc.onicecandidate = async (event) => {
-      if (event.candidate && roomId) {
+      if (event.candidate && activeRoomId) {
         await fetch('/api/p2p/signal', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            roomId,
+            roomId: activeRoomId,
             type: 'candidate',
             payload: event.candidate,
           }),
@@ -70,7 +74,7 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
 
   // Start P2P Sender logic
   const handleStartSender = async () => {
-    if (!selectedFile || !roomId) return;
+    if (!selectedFile || !activeRoomId) return;
 
     setStatus('waiting_for_receiver');
     const pc = setupPeerConnection();
@@ -94,7 +98,7 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        roomId,
+        roomId: activeRoomId,
         type: 'offer',
         payload: {
           sdp: offer,
@@ -108,7 +112,7 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
     const processedCandidates = new Set<string>();
     signalIntervalRef.current = setInterval(async () => {
       try {
-        const res = await fetch(`/api/p2p/signal?roomId=${roomId}`);
+        const res = await fetch(`/api/p2p/signal?roomId=${activeRoomId}`);
         if (!res.ok) return;
         const data = await res.json();
 
@@ -168,7 +172,7 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
 
   // Start Receiver logic
   const handleConnectReceiver = async () => {
-    if (!roomId) return;
+    if (!activeRoomId) return;
     setStatus('connecting');
 
     const pc = setupPeerConnection();
@@ -212,7 +216,7 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
     const processedCandidates = new Set<string>();
     signalIntervalRef.current = setInterval(async () => {
       try {
-        const res = await fetch(`/api/p2p/signal?roomId=${roomId}`);
+        const res = await fetch(`/api/p2p/signal?roomId=${activeRoomId}`);
         if (!res.ok) return;
         const data = await res.json();
 
@@ -231,7 +235,7 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              roomId,
+              roomId: activeRoomId,
               type: 'answer',
               payload: answer,
             }),
@@ -275,10 +279,16 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   };
 
+  const handleCopyCode = () => {
+    navigator.clipboard.writeText(p2pCode);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 2000);
+  };
+
   const handleCopyUrl = () => {
     navigator.clipboard.writeText(p2pUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopiedUrl(true);
+    setTimeout(() => setCopiedUrl(false), 2000);
   };
 
   return (
@@ -357,15 +367,30 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
 
               {selectedFile && (
                 <>
+                  {/* 6-DIGIT P2P CODE BOX */}
+                  <div className="p-4 bg-surface-container-low dark:bg-slate-800/60 rounded-2xl border border-outline-variant/30 flex flex-col items-center gap-2">
+                    <span className="text-label-xs font-mono uppercase text-on-surface-variant font-semibold">Your 6-Digit P2P Transfer Code:</span>
+                    <div className="flex items-center gap-2 font-mono text-headline-xl font-bold tracking-[0.2em] text-primary dark:text-primary-fixed-dim">
+                      {p2pCode}
+                    </div>
+                    <button
+                      onClick={handleCopyCode}
+                      className="mt-1 px-3 py-1 bg-surface-container hover:bg-surface-container-high text-on-surface text-label-xs font-semibold rounded-lg flex items-center gap-1 transition-colors"
+                    >
+                      <span className="material-symbols-outlined text-[14px]">{copiedCode ? 'check' : 'content_copy'}</span>
+                      <span>{copiedCode ? 'Code Copied!' : 'Copy 6-Digit Code'}</span>
+                    </button>
+                  </div>
+
                   {/* Share Link Box */}
                   <div className="p-3 bg-surface-container-low rounded-xl border border-outline-variant/20 flex items-center justify-between text-body-xs font-mono">
                     <span className="truncate max-w-[280px] text-on-surface">{p2pUrl}</span>
                     <button
                       onClick={handleCopyUrl}
-                      className="px-3 py-1 bg-primary text-on-primary font-sans text-label-xs font-semibold rounded-lg hover:bg-primary-container flex items-center gap-1"
+                      className="px-3 py-1 bg-primary text-on-primary font-sans text-label-xs font-semibold rounded-lg hover:bg-primary-container flex items-center gap-1 shrink-0"
                     >
-                      <span className="material-symbols-outlined text-[14px]">{copied ? 'check' : 'content_copy'}</span>
-                      <span>{copied ? 'Copied' : 'Copy P2P Link'}</span>
+                      <span className="material-symbols-outlined text-[14px]">{copiedUrl ? 'check' : 'link'}</span>
+                      <span>{copiedUrl ? 'Copied' : 'Copy Link'}</span>
                     </button>
                   </div>
 
@@ -385,18 +410,22 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
             <div className="py-8 flex flex-col items-center justify-center text-center gap-4">
               <div className="w-12 h-12 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
               <div>
-                <h4 className="text-headline-sm font-bold text-on-surface dark:text-slate-100">Waiting for receiver to join...</h4>
-                <p className="text-body-sm text-on-surface-variant mt-1">Keep this tab open. Share the P2P link with the recipient.</p>
+                <h4 className="text-headline-sm font-bold text-on-surface dark:text-slate-100">Waiting for receiver to connect...</h4>
+                <p className="text-body-sm text-on-surface-variant mt-1">Keep this tab open. Share your 6-digit code or link below.</p>
               </div>
 
-              <div className="w-full p-3 bg-surface-container-low rounded-xl border border-outline-variant/20 flex items-center justify-between text-body-xs font-mono">
-                <span className="truncate max-w-[280px] text-on-surface">{p2pUrl}</span>
+              {/* Display 6-digit code box */}
+              <div className="p-4 w-full bg-surface-container-low dark:bg-slate-800/60 rounded-2xl border border-outline-variant/30 flex flex-col items-center gap-2">
+                <span className="text-label-xs font-mono uppercase text-on-surface-variant font-semibold">Tell recipient to enter code:</span>
+                <div className="flex items-center gap-2 font-mono text-headline-xl font-bold tracking-[0.2em] text-primary dark:text-primary-fixed-dim">
+                  {p2pCode}
+                </div>
                 <button
-                  onClick={handleCopyUrl}
-                  className="px-3 py-1 bg-primary text-on-primary font-sans text-label-xs font-semibold rounded-lg hover:bg-primary-container flex items-center gap-1"
+                  onClick={handleCopyCode}
+                  className="px-3 py-1 bg-surface-container hover:bg-surface-container-high text-on-surface text-label-xs font-semibold rounded-lg flex items-center gap-1"
                 >
-                  <span className="material-symbols-outlined text-[14px]">{copied ? 'check' : 'content_copy'}</span>
-                  <span>{copied ? 'Copied' : 'Copy'}</span>
+                  <span className="material-symbols-outlined text-[14px]">{copiedCode ? 'check' : 'content_copy'}</span>
+                  <span>{copiedCode ? 'Code Copied!' : 'Copy Code'}</span>
                 </button>
               </div>
             </div>
@@ -435,6 +464,7 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
                 onClick={() => {
                   setStatus('idle');
                   setSelectedFile(null);
+                  setP2pCode('');
                 }}
                 className="mt-2 px-4 py-2 bg-surface-container text-on-surface font-semibold rounded-xl hover:bg-surface-container-high text-body-sm"
               >
@@ -450,23 +480,28 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
         <div className="flex flex-col gap-5">
           {status === 'idle' && (
             <>
-              <div className="flex flex-col gap-2">
-                <label className="text-label-md font-mono font-semibold text-on-surface">Enter P2P Room Code or Link:</label>
+              <div className="flex flex-col gap-3">
+                <label className="text-label-md font-mono font-semibold text-on-surface text-center">
+                  Enter Sender's 6-Digit P2P Code:
+                </label>
+                
+                {/* Clean 6-Digit Entry Field */}
                 <input
                   type="text"
-                  value={roomId}
-                  onChange={(e) => setRoomId(e.target.value.replace(/^.*[?&]room=/, ''))}
-                  placeholder="e.g. p2p-a1b2c3d"
-                  className="w-full h-11 px-4 bg-surface-container-low rounded-xl font-mono text-body-sm text-on-surface border border-outline-variant/30 focus:outline-none focus:ring-2 focus:ring-primary"
+                  maxLength={6}
+                  value={p2pCode}
+                  onChange={(e) => setP2pCode(e.target.value.replace(/[^0-9a-zA-Z]/g, ''))}
+                  placeholder="e.g. 849201"
+                  className="w-full h-14 text-center font-mono text-headline-md tracking-[0.3em] font-bold text-primary dark:text-primary-fixed-dim bg-surface-container-low rounded-2xl border border-outline-variant/30 focus:outline-none focus:ring-2 focus:ring-primary uppercase placeholder:tracking-normal placeholder:font-normal placeholder:text-body-md placeholder:text-outline"
                 />
               </div>
 
               <button
                 onClick={handleConnectReceiver}
-                disabled={!roomId}
-                className="w-full h-11 bg-primary hover:bg-primary-container text-on-primary font-semibold rounded-xl flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
+                disabled={!p2pCode || p2pCode.length < 3}
+                className="w-full h-12 bg-primary hover:bg-primary-container text-on-primary font-semibold text-body-md rounded-xl flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 transition-all"
               >
-                <span className="material-symbols-outlined text-[20px]">downloading</span>
+                <span className="material-symbols-outlined text-[22px]">downloading</span>
                 Connect & Receive File
               </button>
             </>
@@ -476,7 +511,7 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
             <div className="py-8 flex flex-col items-center justify-center text-center gap-3">
               <div className="w-12 h-12 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
               <h4 className="text-headline-sm font-bold text-on-surface dark:text-slate-100">Connecting to sender...</h4>
-              <p className="text-body-sm text-on-surface-variant font-mono">Handshaking via P2P signal room '{roomId}'</p>
+              <p className="text-body-sm text-on-surface-variant font-mono">Handshaking with Code #{p2pCode}</p>
             </div>
           )}
 
