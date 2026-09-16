@@ -17,6 +17,19 @@ export default function ShareFilePage({ params }: { params: { id: string } }) {
   const [file, setFile] = useState<FileInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [textContent, setTextContent] = useState<string | null>(null);
+  const [loadingText, setLoadingText] = useState(false);
+
+  const getFileCategory = (fileName: string) => {
+    const ext = fileName.split('.').pop()?.toLowerCase() || '';
+    if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext)) return 'image';
+    if (['mp4', 'webm', 'mov', 'avi'].includes(ext)) return 'video';
+    if (['pdf'].includes(ext)) return 'pdf';
+    if (['json', 'js', 'ts', 'py', 'c', 'cpp', 'java', 'html', 'css', 'txt', 'md', 'sh', 'sql', 'yml', 'xml'].includes(ext)) return 'text';
+    return 'unsupported';
+  };
+
+  const fileUrl = `/api/public/files/${fileId}/download?inline=true`;
 
   useEffect(() => {
     async function loadFile() {
@@ -25,6 +38,16 @@ export default function ShareFilePage({ params }: { params: { id: string } }) {
         if (res.ok) {
           const data = await res.json();
           setFile(data);
+
+          const category = getFileCategory(data.fileName);
+          if (category === 'text') {
+            setLoadingText(true);
+            fetch(fileUrl)
+              .then(r => r.ok ? r.text() : null)
+              .then(t => setTextContent(t))
+              .catch(() => {})
+              .finally(() => setLoadingText(false));
+          }
         } else {
           setError('File not found or link has expired.');
         }
@@ -35,7 +58,7 @@ export default function ShareFilePage({ params }: { params: { id: string } }) {
       }
     }
     loadFile();
-  }, [fileId]);
+  }, [fileId, fileUrl]);
 
   const getFileIcon = (fileName: string): string => {
     const ext = fileName.split('.').pop()?.toLowerCase() || '';
@@ -59,15 +82,17 @@ export default function ShareFilePage({ params }: { params: { id: string } }) {
     window.open(`/api/public/files/${fileId}/download`, '_blank');
   };
 
+  const category = file ? getFileCategory(file.fileName) : 'unsupported';
+
   return (
     <div className="min-h-screen flex items-center justify-center p-4 md:p-6 bg-background dark:bg-[#0b1324] text-on-surface dark:text-slate-100">
       <div className="fixed top-4 right-4 z-50">
         <ThemeToggle />
       </div>
 
-      <div className="max-w-md w-full">
+      <div className="max-w-2xl w-full">
         {/* Header */}
-        <div className="flex flex-col items-center mb-8">
+        <div className="flex flex-col items-center mb-6">
           <div className="w-12 h-12 rounded-xl bg-surface-container-low dark:bg-slate-800 flex items-center justify-center mb-3.5 shadow-sm">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M12 2L2 12L12 22L22 12L12 2Z" fill="#00685f" />
@@ -75,9 +100,11 @@ export default function ShareFilePage({ params }: { params: { id: string } }) {
           </div>
           <h1 className="text-headline-md font-bold text-on-surface dark:text-slate-100 flex items-center gap-2">
             CodeDrop
-            <span className="bg-surface-container dark:bg-slate-800 text-primary dark:text-primary-fixed-dim px-2 py-0.5 rounded-full text-label-sm font-mono">Shared Payload</span>
+            <span className="bg-surface-container dark:bg-slate-800 text-primary dark:text-primary-fixed-dim px-2.5 py-0.5 rounded-full text-label-sm font-mono">
+              Shared File
+            </span>
           </h1>
-          <p className="text-body-sm text-on-surface-variant dark:text-slate-400 mt-1">Direct public download. No login required.</p>
+          <p className="text-body-sm text-on-surface-variant dark:text-slate-400 mt-1">Live preview & direct public download. No login required.</p>
         </div>
 
         {/* Card */}
@@ -97,6 +124,7 @@ export default function ShareFilePage({ params }: { params: { id: string } }) {
             </div>
           ) : file ? (
             <div className="flex flex-col gap-6">
+              {/* File Meta Bar */}
               <div className="flex items-center gap-4 p-4 rounded-xl bg-surface-container-low dark:bg-slate-800/80 border border-outline-variant/20 dark:border-slate-800">
                 <div className="w-12 h-12 shrink-0 rounded-xl bg-primary/10 dark:bg-primary/20 flex items-center justify-center text-primary dark:text-primary-fixed-dim">
                   <span className="material-symbols-outlined text-[28px]">{getFileIcon(file.fileName)}</span>
@@ -111,12 +139,64 @@ export default function ShareFilePage({ params }: { params: { id: string } }) {
                 </div>
               </div>
 
+              {/* Live Inline Preview Box */}
+              <div className="w-full min-h-[220px] max-h-[500px] overflow-auto rounded-xl border border-outline-variant/20 dark:border-slate-800 bg-surface dark:bg-[#070d18] p-4 flex items-center justify-center">
+                {category === 'image' && (
+                  <img 
+                    src={fileUrl} 
+                    alt={file.fileName} 
+                    className="max-h-[460px] max-w-full object-contain rounded-lg shadow-sm" 
+                  />
+                )}
+
+                {category === 'video' && (
+                  <video 
+                    controls 
+                    src={fileUrl} 
+                    className="max-h-[460px] max-w-full rounded-lg shadow-sm" 
+                  />
+                )}
+
+                {category === 'pdf' && (
+                  <iframe 
+                    src={fileUrl} 
+                    title={file.fileName} 
+                    className="w-full h-[450px] rounded-lg border-0 shadow-sm" 
+                  />
+                )}
+
+                {category === 'text' && (
+                  <div className="w-full h-full max-h-[450px] overflow-auto">
+                    {loadingText ? (
+                      <div className="flex flex-col items-center justify-center py-12 gap-2">
+                        <span className="material-symbols-outlined animate-spin text-[32px] text-primary">progress_activity</span>
+                        <span className="text-body-sm font-mono text-on-surface-variant dark:text-slate-400">Loading text preview...</span>
+                      </div>
+                    ) : (
+                      <pre className="p-4 rounded-xl bg-slate-950 text-slate-100 font-mono text-body-sm leading-relaxed overflow-x-auto selection:bg-primary selection:text-white">
+                        <code>{textContent}</code>
+                      </pre>
+                    )}
+                  </div>
+                )}
+
+                {category === 'unsupported' && (
+                  <div className="flex flex-col items-center justify-center text-center py-8 gap-2">
+                    <span className="material-symbols-outlined text-[36px] text-on-surface-variant dark:text-slate-400">draft</span>
+                    <p className="text-body-sm font-mono text-on-surface-variant dark:text-slate-400">
+                      No inline preview for this format. Download below to view.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Download Action */}
               <button
                 onClick={handleDownload}
                 className="w-full h-12 bg-primary hover:bg-primary-container dark:bg-primary-container text-on-primary font-semibold rounded-xl flex items-center justify-center gap-2 shadow-sm transition-all active:scale-[0.99]"
               >
                 <span className="material-symbols-outlined text-[22px]">download</span>
-                Download Payload ({formatFileSize(file.size)})
+                Download File ({formatFileSize(file.size)})
               </button>
 
               <div className="flex items-center justify-between text-label-sm text-on-surface-variant dark:text-slate-400 font-mono border-t border-outline-variant/20 dark:border-slate-800 pt-4">
