@@ -8,6 +8,8 @@ import FileRow from '@/components/FileRow';
 import StorageBar from '@/components/StorageBar';
 import FilePreviewModal from '@/components/FilePreviewModal';
 import GlobalDragOverlay from '@/components/GlobalDragOverlay';
+import StorageAnalyticsWidget from '@/components/StorageAnalyticsWidget';
+import ShareConfigModal from '@/components/ShareConfigModal';
 
 interface FileData {
   id: string;
@@ -30,6 +32,7 @@ export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState<'all' | 'documents' | 'media' | 'code' | 'zip'>('all');
   const [previewFile, setPreviewFile] = useState<FileData | null>(null);
+  const [shareConfigModalFile, setShareConfigModalFile] = useState<FileData | null>(null);
   const [zipping, setZipping] = useState(false);
 
   const totalUsedBytes = files.reduce((acc, f) => acc + (f.size || 0), 0);
@@ -326,9 +329,10 @@ export default function Dashboard() {
   };
 
   const handleShareFile = (id: string) => {
-    const url = `${window.location.origin}/share/file/${id}`;
-    navigator.clipboard.writeText(url);
-    showToast('Public file link copied to clipboard!');
+    const file = files.find(f => f.id === id);
+    if (file) {
+      setShareConfigModalFile(file);
+    }
   };
 
   const handleShareVault = () => {
@@ -349,14 +353,21 @@ export default function Dashboard() {
     <div className="min-h-screen bg-background text-on-surface relative">
       <Header username={username} />
       
-      {/* Global Drag and Drop Overlay (Feature #6) */}
+      {/* Global Drag and Drop Overlay */}
       <GlobalDragOverlay onDropFiles={handleUpload} />
 
-      {/* File Preview Modal (Feature #2) */}
+      {/* File Preview Modal */}
       <FilePreviewModal
         file={previewFile}
         onClose={() => setPreviewFile(null)}
         onDownload={handleDownload}
+      />
+
+      {/* Share Configuration Modal */}
+      <ShareConfigModal
+        file={shareConfigModalFile}
+        onClose={() => setShareConfigModalFile(null)}
+        onCopied={showToast}
       />
 
       {/* Toast Notification */}
@@ -371,6 +382,9 @@ export default function Dashboard() {
         
         {/* Storage Bar */}
         <StorageBar usedBytes={totalUsedBytes} />
+
+        {/* Storage Analytics Widget */}
+        <StorageAnalyticsWidget files={files} />
 
         {/* Upload Section */}
         <section className="mb-10">

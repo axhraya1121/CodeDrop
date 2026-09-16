@@ -47,11 +47,30 @@ export async function GET(
       return NextResponse.json({ error: 'File not found' }, { status: 404 });
     }
 
+    // Expiration Check
+    if (file.expiresAt && new Date() > new Date(file.expiresAt)) {
+      return NextResponse.json({ error: 'This share link has expired.' }, { status: 410 });
+    }
+
+    // Burn After Read Check
+    if (file.maxDownloads !== null && file.downloadCount >= file.maxDownloads) {
+      return NextResponse.json({ error: 'This share link has self-destructed (Burned after download).' }, { status: 410 });
+    }
+
     const blob = await downloadFile(file.storagePath);
     const arrayBuffer = await blob.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
     const isInline = request.nextUrl.searchParams.get('inline') === 'true';
+
+    // Increment download count if it's an actual file download (not an inline preview)
+    if (!isInline) {
+      await prisma.file.update({
+        where: { id: fileId },
+        data: { downloadCount: { increment: 1 } }
+      });
+    }
+
     const contentType = isInline ? getContentType(file.fileName) : 'application/octet-stream';
     const disposition = isInline ? `inline; filename="${file.fileName}"` : `attachment; filename="${file.fileName}"`;
 
@@ -59,7 +78,7 @@ export async function GET(
       headers: {
         'Content-Type': contentType,
         'Content-Disposition': disposition,
-        'Cache-Control': 'public, max-age=3600'
+        'Cache-Control': 'no-cache, no-store, must-revalidate'
       }
     });
   } catch (error: any) {

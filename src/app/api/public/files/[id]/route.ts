@@ -31,12 +31,25 @@ export async function GET(
       return NextResponse.json({ error: 'File not found' }, { status: 404 });
     }
 
+    // Expiration Check
+    if (file.expiresAt && new Date() > new Date(file.expiresAt)) {
+      return NextResponse.json({ error: 'This share link has expired.' }, { status: 410 });
+    }
+
+    // Burn After Read Check
+    if (file.maxDownloads !== null && file.downloadCount >= file.maxDownloads) {
+      return NextResponse.json({ error: 'This share link has self-destructed (Burned after download).' }, { status: 410 });
+    }
+
     return NextResponse.json({
       id: file.id,
       fileName: file.fileName,
       size: file.size,
       uploadedAt: file.uploadedAt,
-      owner: file.user.username
+      owner: file.user.username,
+      expiresAt: file.expiresAt,
+      maxDownloads: file.maxDownloads,
+      downloadCount: file.downloadCount
     });
   } catch (error: any) {
     console.error('Public File Metadata Error:', error);

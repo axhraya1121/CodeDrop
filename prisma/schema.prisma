@@ -17,11 +17,14 @@ model User {
 }
 
 model File {
-  id          String   @id @default(uuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
-  fileName    String
-  storagePath String
-  size        Int
-  uploadedAt  DateTime @default(now())
+  id            String    @id @default(uuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id])
+  fileName      String
+  storagePath   String
+  size          Int
+  uploadedAt    DateTime  @default(now())
+  expiresAt     DateTime?
+  maxDownloads  Int?
+  downloadCount Int       @default(0)
 }
