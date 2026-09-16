@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, use } from 'react';
+import { useState, useEffect } from 'react';
 import ThemeToggle from '@/components/ThemeToggle';
 
 interface FileData {
@@ -17,9 +17,8 @@ interface VaultData {
   files: FileData[];
 }
 
-export default function ShareVaultPage({ params }: { params: Promise<{ username: string }> }) {
-  const resolvedParams = use(params);
-  const username = resolvedParams.username;
+export default function ShareVaultPage({ params }: { params: { username: string } }) {
+  const username = params.username;
 
   const [vault, setVault] = useState<VaultData | null>(null);
   const [loading, setLoading] = useState(true);

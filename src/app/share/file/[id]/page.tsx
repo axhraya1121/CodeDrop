@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, use } from 'react';
+import { useState, useEffect } from 'react';
 import ThemeToggle from '@/components/ThemeToggle';
 
 interface FileInfo {
@@ -11,9 +11,8 @@ interface FileInfo {
   owner: string;
 }
 
-export default function ShareFilePage({ params }: { params: Promise<{ id: string }> }) {
-  const resolvedParams = use(params);
-  const fileId = resolvedParams.id;
+export default function ShareFilePage({ params }: { params: { id: string } }) {
+  const fileId = params.id;
 
   const [file, setFile] = useState<FileInfo | null>(null);
   const [loading, setLoading] = useState(true);
