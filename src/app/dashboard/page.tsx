@@ -389,35 +389,32 @@ export default function Dashboard() {
 
       <main className="max-w-6xl mx-auto px-4 md:px-8 py-10 pt-24">
         
-        {/* Top 2-Column Section (Main Upload & Side Analytics) */}
+        {/* Top 2-Column Section (Main Upload & Right Sidebar Widgets) */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-10 items-stretch">
-          {/* Left Main Column (7 cols): StorageBar + DropZone */}
-          <div className="lg:col-span-7 flex flex-col justify-between gap-6">
-            <StorageBar usedBytes={totalUsedBytes} />
-
-            <div>
-              {uploadError && (
-                <div className="mb-4 p-4 rounded-xl bg-error-container text-on-error-container border border-error/20 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[20px] text-error">error</span>
-                    <span className="text-body-sm font-medium">{uploadError}</span>
-                  </div>
-                  <button onClick={() => setUploadError(null)} className="text-on-error-container hover:text-error">
-                    <span className="material-symbols-outlined text-[18px]">close</span>
-                  </button>
+          {/* Left Main Column (7 cols): Upload DropZone */}
+          <div className="lg:col-span-7 flex flex-col justify-center">
+            {uploadError && (
+              <div className="mb-4 p-4 rounded-xl bg-error-container text-on-error-container border border-error/20 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[20px] text-error">error</span>
+                  <span className="text-body-sm font-medium">{uploadError}</span>
                 </div>
-              )}
+                <button onClick={() => setUploadError(null)} className="text-on-error-container hover:text-error">
+                  <span className="material-symbols-outlined text-[18px]">close</span>
+                </button>
+              </div>
+            )}
 
-              <DropZone 
-                onUpload={handleUpload} 
-                uploading={uploading} 
-                uploadProgress={uploadProgress} 
-              />
-            </div>
+            <DropZone 
+              onUpload={handleUpload} 
+              uploading={uploading} 
+              uploadProgress={uploadProgress} 
+            />
           </div>
 
-          {/* Right Side Column (5 cols): Storage Analytics Sidebar Card */}
-          <div className="lg:col-span-5">
+          {/* Right Side Column (5 cols): Storage Usage Widget (Top) + Storage Analytics Widget (Bottom) */}
+          <div className="lg:col-span-5 flex flex-col gap-6">
+            <StorageBar usedBytes={totalUsedBytes} />
             <StorageAnalyticsWidget files={files} />
           </div>
         </div>

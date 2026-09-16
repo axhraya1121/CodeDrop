@@ -24,25 +24,40 @@ export default function StorageBar({ usedBytes }: StorageBarProps) {
     return 'bg-primary dark:bg-primary-fixed-dim';
   };
 
+  const remainingMB = Math.max(0, 100 - (usedBytes / (1024 * 1024))).toFixed(1);
+
   return (
-    <div className="bg-surface-container-lowest dark:bg-slate-900 border border-outline-variant/20 dark:border-slate-800 rounded-2xl p-5 shadow-sm mb-8 flex flex-col gap-3">
+    <div className="bg-surface-container-lowest dark:bg-slate-900 border border-outline-variant/20 dark:border-slate-800 rounded-2xl p-5 shadow-sm flex flex-col justify-between gap-4">
+      {/* Widget Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-[20px] text-primary dark:text-primary-fixed-dim">hard_drive</span>
-          <span className="text-body-md font-semibold text-on-surface dark:text-slate-100">Storage Usage</span>
+          <div className="w-8 h-8 rounded-lg bg-primary/10 dark:bg-primary/20 flex items-center justify-center text-primary dark:text-primary-fixed-dim">
+            <span className="material-symbols-outlined text-[18px]">hard_drive</span>
+          </div>
+          <span className="text-body-sm font-bold text-on-surface dark:text-slate-100">Storage Usage</span>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-label-md font-bold text-on-surface dark:text-slate-200">
-            {formatSize(usedBytes)} / 100 MB
+        <span className="text-label-sm font-mono font-bold px-2.5 py-0.5 rounded-full bg-surface-container dark:bg-slate-800 text-primary dark:text-primary-fixed-dim">
+          {percent.toFixed(1)}%
+        </span>
+      </div>
+
+      {/* Metric Display */}
+      <div className="flex flex-col">
+        <div className="flex items-baseline gap-1.5 font-mono">
+          <span className="text-headline-sm font-bold text-on-surface dark:text-slate-100">
+            {formatSize(usedBytes)}
           </span>
-          <span className="text-label-sm font-mono px-2 py-0.5 rounded-full bg-surface-container dark:bg-slate-800 text-on-surface-variant dark:text-slate-300">
-            {percent.toFixed(1)}%
+          <span className="text-body-sm text-on-surface-variant dark:text-slate-400 font-medium">
+            / 100 MB
           </span>
         </div>
+        <span className="text-label-sm font-mono text-outline dark:text-slate-400 mt-0.5">
+          {remainingMB} MB remaining
+        </span>
       </div>
 
       {/* Progress Bar Container */}
-      <div className="w-full h-2.5 rounded-full bg-surface-container dark:bg-slate-800 overflow-hidden">
+      <div className="w-full h-2 rounded-full bg-surface-container dark:bg-slate-800 overflow-hidden">
         <div 
           className={`h-full rounded-full transition-all duration-300 ease-out ${getBarColor()}`}
           style={{ width: `${percent}%` }}
@@ -52,7 +67,7 @@ export default function StorageBar({ usedBytes }: StorageBarProps) {
       {percent >= 90 && (
         <p className="text-label-sm text-rose-500 dark:text-rose-400 flex items-center gap-1 font-mono">
           <span className="material-symbols-outlined text-[14px]">warning</span>
-          Storage almost full ({ (100 - (usedBytes / (1024 * 1024))).toFixed(1) } MB remaining)
+          Quota almost full
         </p>
       )}
     </div>
