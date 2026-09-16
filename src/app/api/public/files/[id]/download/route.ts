@@ -4,6 +4,25 @@ import { downloadFile } from '@/lib/r2';
 
 export const dynamic = 'force-dynamic';
 
+function getContentType(fileName: string): string {
+  const ext = fileName.split('.').pop()?.toLowerCase() || '';
+  switch (ext) {
+    case 'pdf': return 'application/pdf';
+    case 'png': return 'image/png';
+    case 'jpg': case 'jpeg': return 'image/jpeg';
+    case 'gif': return 'image/gif';
+    case 'svg': return 'image/svg+xml';
+    case 'webp': return 'image/webp';
+    case 'mp4': return 'video/mp4';
+    case 'webm': return 'video/webm';
+    case 'json': return 'application/json';
+    case 'txt': case 'md': case 'js': case 'ts': case 'py': case 'c': case 'cpp': case 'java': case 'css': case 'html':
+      return 'text/plain; charset=utf-8';
+    default:
+      return 'application/octet-stream';
+  }
+}
+
 export async function GET(
   request: NextRequest,
   context: { params: { id: string } }
@@ -33,11 +52,12 @@ export async function GET(
     const buffer = Buffer.from(arrayBuffer);
 
     const isInline = request.nextUrl.searchParams.get('inline') === 'true';
+    const contentType = isInline ? getContentType(file.fileName) : 'application/octet-stream';
     const disposition = isInline ? `inline; filename="${file.fileName}"` : `attachment; filename="${file.fileName}"`;
 
     return new Response(buffer, {
       headers: {
-        'Content-Type': 'application/octet-stream',
+        'Content-Type': contentType,
         'Content-Disposition': disposition,
         'Cache-Control': 'public, max-age=3600'
       }

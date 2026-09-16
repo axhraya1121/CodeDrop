@@ -337,6 +337,14 @@ export default function Dashboard() {
     showToast('Public vault link copied to clipboard!');
   };
 
+  const handleShareSelected = () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    const url = `${window.location.origin}/share/files?ids=${ids.join(',')}`;
+    navigator.clipboard.writeText(url);
+    showToast(`Public link for ${ids.length} selected files copied to clipboard!`);
+  };
+
   return (
     <div className="min-h-screen bg-background text-on-surface relative">
       <Header username={username} />
@@ -445,6 +453,19 @@ export default function Dashboard() {
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
+              {/* Share Selected Button */}
+              {selectedIds.size > 0 && (
+                <button
+                  type="button"
+                  onClick={handleShareSelected}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-container dark:bg-slate-800 hover:bg-primary/10 text-primary dark:text-primary-fixed-dim font-mono text-label-sm font-semibold transition-colors border border-outline-variant/30 dark:border-slate-700"
+                  title="Share public link for selected files"
+                >
+                  <span className="material-symbols-outlined text-[18px]">share</span>
+                  Share Selected ({selectedIds.size})
+                </button>
+              )}
+
               {/* Download Selected as ZIP */}
               {selectedIds.size > 0 && (
                 <button
