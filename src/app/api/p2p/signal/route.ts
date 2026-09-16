@@ -1,54 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
-
-// In-memory signaling store for WebRTC room handshakes
-const signalStore: Record<string, {
-  offer?: any;
-  answer?: any;
-  candidates: any[];
-  lastUpdated: number;
-}> = {};
-
-// Clean up stale rooms older than 30 minutes every 5 minutes
-if (typeof setInterval !== 'undefined') {
-  setInterval(() => {
-    const now = Date.now();
-    for (const key of Object.keys(signalStore)) {
-      if (now - signalStore[key].lastUpdated > 30 * 60 * 1000) {
-        delete signalStore[key];
-      }
-    }
-  }, 5 * 60 * 1000);
-}
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { roomId, type, payload } = body;
 
-    if (!roomId || !type) {
-      return NextResponse.json({ error: 'roomId and type are required' }, { status: 400 });
+    if (!roomId || !type || !payload) {
+      return NextResponse.json({ error: 'roomId, type, and payload are required' }, { status: 400 });
     }
 
-    if (!signalStore[roomId]) {
-      signalStore[roomId] = { candidates: [], lastUpdated: Date.now() };
-    }
+    const cleanRoomId = roomId.toLowerCase().trim();
 
-    signalStore[roomId].lastUpdated = Date.now();
-
-    if (type === 'offer') {
-      signalStore[roomId].offer = payload;
-    } else if (type === 'answer') {
-      signalStore[roomId].answer = payload;
-    } else if (type === 'candidate') {
-      signalStore[roomId].candidates.push(payload);
-    }
+    await prisma.p2PSignal.create({
+      data: {
+        roomId: cleanRoomId,
+        type,
+        payload,
+      },
+    });
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error('Signal POST Error:', error);
-    return NextResponse.json({ error: 'Failed to process signal' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to save P2P signal' }, { status: 500 });
   }
 }
 
@@ -59,21 +36,34 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'roomId is required' }, { status: 400 });
     }
 
-    const roomData = signalStore[roomId];
-    if (!roomData) {
-      return NextResponse.json({ offer: null, answer: null, candidates: [] });
+    const cleanRoomId = roomId.toLowerCase().trim();
+
+    const signals = await prisma.p2PSignal.findMany({
+      where: { roomId: cleanRoomId },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    let offer: any = null;
+    let answer: any = null;
+    const candidates: any[] = [];
+
+    for (const sig of signals) {
+      if (sig.type === 'offer') {
+        offer = sig.payload;
+      } else if (sig.type === 'answer') {
+        answer = sig.payload;
+      } else if (sig.type === 'candidate') {
+        candidates.push(sig.payload);
+      }
     }
 
-    // Return current room signals
-    const responseData = {
-      offer: roomData.offer || null,
-      answer: roomData.answer || null,
-      candidates: [...roomData.candidates],
-    };
-
-    return NextResponse.json(responseData);
+    return NextResponse.json({
+      offer,
+      answer,
+      candidates,
+    });
   } catch (error: any) {
     console.error('Signal GET Error:', error);
-    return NextResponse.json({ error: 'Failed to fetch signal' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch P2P signals' }, { status: 500 });
   }
 }

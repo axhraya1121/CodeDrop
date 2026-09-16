@@ -53,3 +53,11 @@ model LinkAccessLog {
   region     String?
   accessedAt DateTime @default(now())
 }
+
+model P2PSignal {
+  id        String   @id @default(uuid())
+  roomId    String
+  type      String
+  payload   Json
+  createdAt DateTime @default(now())
+}
