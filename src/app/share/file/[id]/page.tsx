@@ -20,6 +20,11 @@ export default function ShareFilePage({ params }: { params: { id: string } }) {
   const [error, setError] = useState<string | null>(null);
   const [textContent, setTextContent] = useState<string | null>(null);
   const [loadingText, setLoadingText] = useState(false);
+  
+  // Save to My Vault State
+  const [currentUser, setCurrentUser] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importToast, setImportToast] = useState<string | null>(null);
 
   const getFileCategory = (fileName: string) => {
     const ext = fileName.split('.').pop()?.toLowerCase() || '';
@@ -33,6 +38,14 @@ export default function ShareFilePage({ params }: { params: { id: string } }) {
   const fileUrl = `/api/public/files/${fileId}/download?inline=true`;
 
   useEffect(() => {
+    // Check if current visitor is logged in
+    fetch('/api/auth/me')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d?.username) setCurrentUser(d.username);
+      })
+      .catch(() => {});
+
     async function loadFile() {
       try {
         const res = await fetch(`/api/public/files/${fileId}`);
@@ -84,13 +97,44 @@ export default function ShareFilePage({ params }: { params: { id: string } }) {
     window.open(`/api/public/files/${fileId}/download`, '_blank');
   };
 
+  const handleSaveToVault = async () => {
+    if (!file || importing) return;
+    setImporting(true);
+
+    try {
+      const res = await fetch(`/api/files/${fileId}/import`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        setImportToast(data.message || `'${file.fileName}' saved to your vault!`);
+        setTimeout(() => setImportToast(null), 4000);
+      } else {
+        alert(data.error || 'Failed to save file to your vault.');
+      }
+    } catch (err) {
+      alert('Network error importing file to vault.');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const category = file ? getFileCategory(file.fileName) : 'unsupported';
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 md:p-6 bg-background dark:bg-[#0b1324] text-on-surface dark:text-slate-100">
+    <div className="min-h-screen flex items-center justify-center p-4 md:p-6 bg-background dark:bg-[#0b1324] text-on-surface dark:text-slate-100 relative">
       <div className="fixed top-4 right-4 z-50">
         <ThemeToggle />
       </div>
+
+      {/* Import Success Toast */}
+      {importToast && (
+        <div className="fixed bottom-6 right-6 z-50 bg-tertiary text-on-tertiary px-5 py-3 rounded-2xl shadow-xl border border-tertiary-fixed-dim font-mono text-label-md animate-bounce flex items-center gap-2">
+          <span className="material-symbols-outlined text-[20px]">check_circle</span>
+          <span>{importToast}</span>
+        </div>
+      )}
 
       <div className="max-w-2xl w-full">
         {/* Header */}
@@ -131,39 +175,67 @@ export default function ShareFilePage({ params }: { params: { id: string } }) {
               {file.viewOnly && (
                 <div className="p-3 bg-tertiary/10 dark:bg-emerald-950/40 border border-tertiary/30 rounded-xl flex items-center gap-2.5 text-body-sm font-medium text-tertiary dark:text-emerald-300">
                   <span className="material-symbols-outlined text-[20px]">lock</span>
-                  <span>🔒 View-Only Mode: Downloads & text copying are disabled by owner.</span>
+                  <span>🔒 View-Only Mode: Downloads & text copying are disabled by owner. Watermark active.</span>
                 </div>
               )}
 
               {/* File Meta Bar */}
-              <div className="flex items-center gap-4 p-4 rounded-xl bg-surface-container-low dark:bg-slate-800/80 border border-outline-variant/20 dark:border-slate-800">
-                <div className="w-12 h-12 shrink-0 rounded-xl bg-primary/10 dark:bg-primary/20 flex items-center justify-center text-primary dark:text-primary-fixed-dim">
-                  <span className="material-symbols-outlined text-[28px]">{getFileIcon(file.fileName)}</span>
-                </div>
-                <div className="flex flex-col min-w-0">
-                  <h3 className="text-body-md font-semibold text-on-surface dark:text-slate-100 truncate">{file.fileName}</h3>
-                  <div className="flex items-center gap-3 mt-1 font-mono text-label-sm text-on-surface-variant dark:text-slate-400">
-                    <span>{formatFileSize(file.size)}</span>
-                    <span>•</span>
-                    <span>Shared by @{file.owner}</span>
+              <div className="flex items-center justify-between p-4 rounded-xl bg-surface-container-low dark:bg-slate-800/80 border border-outline-variant/20 dark:border-slate-800">
+                <div className="flex items-center gap-4 min-w-0">
+                  <div className="w-12 h-12 shrink-0 rounded-xl bg-primary/10 dark:bg-primary/20 flex items-center justify-center text-primary dark:text-primary-fixed-dim">
+                    <span className="material-symbols-outlined text-[28px]">{getFileIcon(file.fileName)}</span>
+                  </div>
+                  <div className="flex flex-col min-w-0">
+                    <h3 className="text-body-md font-semibold text-on-surface dark:text-slate-100 truncate">{file.fileName}</h3>
+                    <div className="flex items-center gap-3 mt-1 font-mono text-label-sm text-on-surface-variant dark:text-slate-400">
+                      <span>{formatFileSize(file.size)}</span>
+                      <span>•</span>
+                      <span>Shared by @{file.owner}</span>
+                    </div>
                   </div>
                 </div>
+
+                {/* 1-Click Save to My Vault (Logged In Users) */}
+                {currentUser && (
+                  <button
+                    onClick={handleSaveToVault}
+                    disabled={importing}
+                    className="shrink-0 px-3.5 py-2 bg-secondary/10 hover:bg-secondary/20 text-secondary dark:text-secondary-fixed-dim font-mono text-label-sm font-bold rounded-xl border border-secondary/20 transition-all flex items-center gap-1.5"
+                    title="Import this file directly into your CodeDrop storage vault"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">
+                      {importing ? 'progress_activity' : 'library_add'}
+                    </span>
+                    <span className="hidden sm:inline">{importing ? 'Importing...' : 'Save to My Vault'}</span>
+                  </button>
+                )}
               </div>
 
-              {/* Live Inline Preview Box */}
+              {/* Live Inline Preview Box with Optional Watermark */}
               <div 
-                className={`w-full min-h-[220px] max-h-[500px] overflow-auto rounded-xl border border-outline-variant/20 dark:border-slate-800 bg-surface dark:bg-[#070d18] p-4 flex items-center justify-center ${
+                className={`relative w-full min-h-[220px] max-h-[500px] overflow-hidden rounded-xl border border-outline-variant/20 dark:border-slate-800 bg-surface dark:bg-[#070d18] p-4 flex items-center justify-center ${
                   file.viewOnly ? 'select-none' : ''
                 }`}
                 onContextMenu={(e) => {
                   if (file.viewOnly) e.preventDefault();
                 }}
               >
+                {/* Diagonal Repeating Security Watermark for View-Only Mode */}
+                {file.viewOnly && (
+                  <div className="absolute inset-0 pointer-events-none z-20 flex flex-wrap items-center justify-around gap-12 overflow-hidden opacity-15 rotate-[-25deg] select-none text-on-surface font-mono font-bold text-headline-sm uppercase tracking-widest p-8">
+                    {Array.from({ length: 8 }).map((_, i) => (
+                      <span key={i} className="whitespace-nowrap">
+                        CodeDrop Confidential • Shared by @{file.owner}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
                 {category === 'image' && (
                   <img 
                     src={fileUrl} 
                     alt={file.fileName} 
-                    className="max-h-[460px] max-w-full object-contain rounded-lg shadow-sm" 
+                    className="max-h-[460px] max-w-full object-contain rounded-lg shadow-sm z-10" 
                   />
                 )}
 
@@ -172,7 +244,7 @@ export default function ShareFilePage({ params }: { params: { id: string } }) {
                     controls={!file.viewOnly}
                     controlsList={file.viewOnly ? 'nodownload' : undefined}
                     src={fileUrl} 
-                    className="max-h-[460px] max-w-full rounded-lg shadow-sm" 
+                    className="max-h-[460px] max-w-full rounded-lg shadow-sm z-10" 
                   />
                 )}
 
@@ -180,12 +252,12 @@ export default function ShareFilePage({ params }: { params: { id: string } }) {
                   <iframe 
                     src={fileUrl} 
                     title={file.fileName} 
-                    className="w-full h-[450px] rounded-lg border-0 shadow-sm" 
+                    className="w-full h-[450px] rounded-lg border-0 shadow-sm z-10" 
                   />
                 )}
 
                 {category === 'text' && (
-                  <div className="w-full h-full max-h-[450px] overflow-auto">
+                  <div className="w-full h-full max-h-[450px] overflow-auto z-10">
                     {loadingText ? (
                       <div className="flex flex-col items-center justify-center py-12 gap-2">
                         <span className="material-symbols-outlined animate-spin text-[32px] text-primary">progress_activity</span>
@@ -202,7 +274,7 @@ export default function ShareFilePage({ params }: { params: { id: string } }) {
                 )}
 
                 {category === 'unsupported' && (
-                  <div className="flex flex-col items-center justify-center text-center py-8 gap-2">
+                  <div className="flex flex-col items-center justify-center text-center py-8 gap-2 z-10">
                     <span className="material-symbols-outlined text-[36px] text-on-surface-variant dark:text-slate-400">draft</span>
                     <p className="text-body-sm font-mono text-on-surface-variant dark:text-slate-400">
                       {file.viewOnly ? 'No inline preview available for this file type.' : 'No inline preview for this format. Download below to view.'}
