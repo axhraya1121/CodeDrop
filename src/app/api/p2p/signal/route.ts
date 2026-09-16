@@ -14,6 +14,13 @@ export async function POST(request: NextRequest) {
 
     const cleanRoomId = roomId.toLowerCase().trim();
 
+    // If a new offer is posted, delete old signals for this room to avoid stale handshake conflicts
+    if (type === 'offer') {
+      await prisma.p2PSignal.deleteMany({
+        where: { roomId: cleanRoomId }
+      });
+    }
+
     await prisma.p2PSignal.create({
       data: {
         roomId: cleanRoomId,

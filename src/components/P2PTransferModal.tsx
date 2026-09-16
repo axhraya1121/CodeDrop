@@ -35,7 +35,7 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
     return `p2p-${code.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
   };
 
-  // Generate a 6-digit numeric code for Sender mode
+  // Generate 6-digit numeric code for Sender
   useEffect(() => {
     if (role === 'sender' && !p2pCode) {
       const random6Digit = Math.floor(100000 + Math.random() * 900000).toString();
@@ -57,6 +57,7 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
         { urls: 'stun:stun2.l.google.com:19302' },
         { urls: 'stun:stun3.l.google.com:19302' },
         { urls: 'stun:stun4.l.google.com:19302' },
+        { urls: 'stun:global.stun.twilio.com:3478' },
       ],
     });
 
@@ -99,15 +100,19 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
     };
 
     dc.onerror = (err) => {
-      console.error('DataChannel Error:', err);
-      setErrorMsg('WebRTC DataChannel connection failed. Please check network firewall/NAT.');
+      console.error('Sender DataChannel error:', err);
+      setErrorMsg('DataChannel error occurred. Retrying connection...');
+    };
+
+    dc.onclose = () => {
+      console.log('Sender DataChannel closed');
     };
 
     // Create SDP Offer
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
 
-    // Send SDP Offer with file metadata to DB
+    // Send SDP Offer with file metadata
     await fetch('/api/p2p/signal', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -146,7 +151,7 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
       } catch (err) {
         console.error('Sender signaling poll error:', err);
       }
-    }, 1000);
+    }, 800);
   };
 
   const sendFileInChunks = async (dc: RTCDataChannel, file: File) => {
@@ -155,7 +160,15 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
     const total = file.size;
 
     while (offset < total) {
-      if (dc.readyState !== 'open') break;
+      if (dc.readyState === 'closed' || dc.readyState === 'closing') {
+        setErrorMsg('P2P connection lost before transfer finished.');
+        return;
+      }
+
+      if (dc.readyState !== 'open') {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        continue;
+      }
 
       // Handle backpressure buffer
       if (dc.bufferedAmount > 8 * CHUNK_SIZE) {
@@ -179,8 +192,10 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
       }
     }
 
-    if (signalIntervalRef.current) clearInterval(signalIntervalRef.current);
-    setStatus('completed');
+    if (offset >= total) {
+      if (signalIntervalRef.current) clearInterval(signalIntervalRef.current);
+      setStatus('completed');
+    }
   };
 
   // RECEIVER FLOW
@@ -192,7 +207,11 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
     const roomId = getCleanRoomId(p2pCode);
     const pc = setupPeerConnection();
 
-    // Listen for DataChannel
+    // Reset chunks
+    receivedChunksRef.current = [];
+    receivedBytesRef.current = 0;
+
+    // Listen for incoming DataChannel
     pc.ondatachannel = (event) => {
       const dc = event.channel;
       dc.binaryType = 'arraybuffer';
@@ -280,7 +299,7 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
       } catch (err) {
         console.error('Receiver signaling poll error:', err);
       }
-    }, 1000);
+    }, 800);
   };
 
   const triggerFileDownload = () => {
@@ -444,7 +463,7 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
               <div className="w-12 h-12 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
               <div>
                 <h4 className="text-headline-sm font-bold text-on-surface dark:text-slate-100">Waiting for receiver to connect...</h4>
-                <p className="text-body-sm text-on-surface-variant mt-1">Keep this tab open. Share your 6-digit code or link below.</p>
+                <p className="text-body-sm text-on-surface-variant mt-1">Keep this tab open. Tell recipient to enter the code below.</p>
               </div>
 
               {/* Display 6-digit code box */}
