@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { generateQRCodeSVG } from '@/lib/qrcode';
 
 interface QRCodeModalProps {
@@ -12,10 +12,28 @@ interface QRCodeModalProps {
 
 export default function QRCodeModal({ isOpen, url, title = 'Share Link QR Code', onClose }: QRCodeModalProps) {
   const [copied, setCopied] = useState(false);
+  const [svgContent, setSvgContent] = useState<string>('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!isOpen || !url) return;
+
+    let isMounted = true;
+    setLoading(true);
+
+    generateQRCodeSVG(url, 220).then((svg) => {
+      if (isMounted) {
+        setSvgContent(svg);
+        setLoading(false);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, url]);
 
   if (!isOpen) return null;
-
-  const svgContent = generateQRCodeSVG(url, 220);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(url);
@@ -46,8 +64,15 @@ export default function QRCodeModal({ isOpen, url, title = 'Share Link QR Code',
         </p>
 
         {/* QR Code Container */}
-        <div className="p-4 bg-white rounded-2xl border border-outline-variant/30 shadow-inner mb-5 flex items-center justify-center">
-          <div dangerouslySetInnerHTML={{ __html: svgContent }} />
+        <div className="p-4 bg-white rounded-2xl border border-outline-variant/30 shadow-inner mb-5 flex items-center justify-center min-h-[250px] min-w-[250px]">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center gap-2 text-on-surface-variant">
+              <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+              <span className="text-body-xs font-mono">Generating QR Code...</span>
+            </div>
+          ) : (
+            <div dangerouslySetInnerHTML={{ __html: svgContent }} />
+          )}
         </div>
 
         {/* Link box */}
