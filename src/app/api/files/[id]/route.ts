@@ -7,46 +7,54 @@ export const dynamic = 'force-dynamic';
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   try {
     const userId = await getAuthFromRequest(request);
 
     if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json({ error: 'Unauthorized. Please sign in again.' }, { status: 401 });
     }
 
-    const rawId = params?.id || request.nextUrl.pathname.split('/').pop() || '';
-    const fileId = decodeURIComponent(rawId).trim();
+    // Safely resolve params (supports both direct object and Promise in Next.js 14/15)
+    const resolvedParams = await Promise.resolve(context?.params);
+    let fileId = resolvedParams?.id;
+
+    if (!fileId) {
+      const segments = request.nextUrl.pathname.split('/').filter(Boolean);
+      fileId = segments[segments.length - 1];
+    }
+
+    fileId = decodeURIComponent(fileId || '').trim();
 
     if (!fileId) {
       return NextResponse.json({ error: 'File ID is required' }, { status: 400 });
     }
 
-    // 1. Locate file record to verify ownership and get storage path
+    // 1. Locate file record to verify ownership and retrieve storage path
     const file = await prisma.file.findFirst({
       where: { 
         id: fileId,
-        userId // Enforce ownership check directly in query
+        userId
       }
     });
 
     if (file) {
-      // 2. Try deleting from storage (Backblaze / S3 / Supabase)
+      // 2. Delete file object from Backblaze / S3 / Supabase storage
       if (file.storagePath) {
         try {
           await deleteFile(file.storagePath);
         } catch (storageError: any) {
-          console.warn('[Delete API] Storage delete warning (continuing with DB purge):', storageError?.message);
+          console.warn('[Delete API] Storage purge notice:', storageError?.message);
         }
       }
     }
 
-    // 3. Delete DB record using deleteMany (prevents P2025 error if record was already removed)
+    // 3. Delete DB record using deleteMany (safe against missing records / double delete)
     const result = await prisma.file.deleteMany({
       where: {
         id: fileId,
-        userId // Ensures user can only delete their own files
+        userId
       }
     });
 
@@ -57,9 +65,9 @@ export async function DELETE(
     });
 
   } catch (error: any) {
-    console.error('[Delete API Error]:', error);
+    console.error('[Delete API Critical Error]:', error);
     return NextResponse.json({ 
-      error: error?.message || 'Internal server error while deleting file' 
+      error: error?.message || 'Failed to delete file' 
     }, { status: 500 });
   }
 }
