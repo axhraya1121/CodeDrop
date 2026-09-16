@@ -28,6 +28,8 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
   const dcRef = useRef<RTCDataChannel | null>(null);
   const receivedChunksRef = useRef<ArrayBuffer[]>([]);
   const receivedBytesRef = useRef<number>(0);
+  const receivedFileSizeRef = useRef<number>(0);
+  const receivedFileNameRef = useRef<string>('');
   const startTimeRef = useRef<number>(0);
   const signalIntervalRef = useRef<any>(null);
 
@@ -102,10 +104,6 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
     dc.onerror = (err) => {
       console.error('Sender DataChannel error:', err);
       setErrorMsg('DataChannel error occurred. Retrying connection...');
-    };
-
-    dc.onclose = () => {
-      console.log('Sender DataChannel closed');
     };
 
     // Create SDP Offer
@@ -210,6 +208,7 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
     // Reset chunks
     receivedChunksRef.current = [];
     receivedBytesRef.current = 0;
+    receivedFileSizeRef.current = 0;
 
     // Listen for incoming DataChannel
     pc.ondatachannel = (event) => {
@@ -222,24 +221,33 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
         startTimeRef.current = Date.now();
       };
 
+      dc.onclose = () => {
+        if (receivedChunksRef.current.length > 0 && receivedBytesRef.current > 0) {
+          triggerFileDownload();
+        }
+      };
+
       dc.onmessage = (e) => {
         const chunk = e.data as ArrayBuffer;
         receivedChunksRef.current.push(chunk);
         receivedBytesRef.current += chunk.byteLength;
 
-        setTransferredBytes(receivedBytesRef.current);
+        const currentBytes = receivedBytesRef.current;
+        const totalSize = receivedFileSizeRef.current;
 
-        if (receivedFileSize > 0) {
-          const currentPercent = Math.min(100, Math.round((receivedBytesRef.current / receivedFileSize) * 100));
+        setTransferredBytes(currentBytes);
+
+        if (totalSize > 0) {
+          const currentPercent = Math.min(100, Math.round((currentBytes / totalSize) * 100));
           setProgress(currentPercent);
 
           const elapsedSec = (Date.now() - startTimeRef.current) / 1000;
           if (elapsedSec > 0) {
-            const speedMBs = (receivedBytesRef.current / (1024 * 1024)) / elapsedSec;
+            const speedMBs = (currentBytes / (1024 * 1024)) / elapsedSec;
             setTransferSpeed(`${speedMBs.toFixed(1)} MB/s`);
           }
 
-          if (receivedBytesRef.current >= receivedFileSize) {
+          if (currentBytes >= totalSize) {
             triggerFileDownload();
           }
         }
@@ -258,8 +266,13 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
 
         if (data.offer && !pc.currentRemoteDescription) {
           const offerPayload = data.offer;
-          setReceivedFileName(offerPayload.fileName || 'p2p-shared-file');
-          setReceivedFileSize(offerPayload.fileSize || 0);
+          const fileName = offerPayload.fileName || 'p2p-shared-file';
+          const fileSize = offerPayload.fileSize || 0;
+
+          receivedFileNameRef.current = fileName;
+          receivedFileSizeRef.current = fileSize;
+          setReceivedFileName(fileName);
+          setReceivedFileSize(fileSize);
 
           await pc.setRemoteDescription(new RTCSessionDescription(offerPayload.sdp));
 
@@ -304,15 +317,17 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
 
   const triggerFileDownload = () => {
     if (signalIntervalRef.current) clearInterval(signalIntervalRef.current);
+    const fileNameToSave = receivedFileNameRef.current || receivedFileName || 'downloaded-p2p-file';
     const blob = new Blob(receivedChunksRef.current);
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = receivedFileName || 'downloaded-p2p-file';
+    a.download = fileNameToSave;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+    setProgress(100);
     setStatus('completed');
   };
 
