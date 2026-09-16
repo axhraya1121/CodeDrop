@@ -64,47 +64,68 @@ export default function Dashboard() {
     fetchFiles();
   }, []);
 
-  const handleUpload = (fileList: FileList) => {
-    if (fileList.length === 0) return;
+  const handleUpload = async (fileList: FileList) => {
+    const filesToUpload = Array.from(fileList);
+    if (filesToUpload.length === 0) return;
+
     setUploading(true);
     setUploadError(null);
 
-    const file = fileList[0];
-    const formData = new FormData();
-    formData.append('file', file);
+    const errors: string[] = [];
 
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/files/upload', true);
+    for (let i = 0; i < filesToUpload.length; i++) {
+      const file = filesToUpload[i];
+      const batchLabel = filesToUpload.length > 1 ? `[${i + 1}/${filesToUpload.length}] ${file.name}` : file.name;
 
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) {
-        const percent = Math.round((e.loaded / e.total) * 100);
-        setUploadProgress({ fileName: file.name, percent });
-      }
-    };
+      setUploadProgress({
+        fileName: batchLabel,
+        percent: 0
+      });
 
-    xhr.onload = async () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        await fetchFiles();
-      } else {
-        try {
-          const data = JSON.parse(xhr.responseText);
-          setUploadError(data.error || 'Upload failed. Storage limit or network issue.');
-        } catch {
-          setUploadError(`Upload failed with status ${xhr.status}`);
-        }
-      }
-      setUploading(false);
-      setTimeout(() => setUploadProgress(null), 1000);
-    };
+      await new Promise<void>((resolve) => {
+        const formData = new FormData();
+        formData.append('file', file);
 
-    xhr.onerror = () => {
-      setUploadError('Network error during file upload.');
-      setUploading(false);
-      setTimeout(() => setUploadProgress(null), 1000);
-    };
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/files/upload', true);
 
-    xhr.send(formData);
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            const percent = Math.round((e.loaded / e.total) * 100);
+            setUploadProgress({ fileName: batchLabel, percent });
+          }
+        };
+
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve();
+          } else {
+            try {
+              const data = JSON.parse(xhr.responseText);
+              errors.push(`${file.name}: ${data.error || 'Upload failed'}`);
+            } catch {
+              errors.push(`${file.name}: Upload failed (${xhr.status})`);
+            }
+            resolve();
+          }
+        };
+
+        xhr.onerror = () => {
+          errors.push(`${file.name}: Network error`);
+          resolve();
+        };
+
+        xhr.send(formData);
+      });
+    }
+
+    await fetchFiles();
+    setUploading(false);
+    setTimeout(() => setUploadProgress(null), 1000);
+
+    if (errors.length > 0) {
+      setUploadError(errors.join(' | '));
+    }
   };
 
   const handleDelete = async (id: string) => {
