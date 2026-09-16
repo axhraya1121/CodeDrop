@@ -378,34 +378,40 @@ export default function Dashboard() {
         </div>
       )}
 
-      <main className="max-w-5xl mx-auto px-4 md:px-8 py-10 pt-24">
+      <main className="max-w-6xl mx-auto px-4 md:px-8 py-10 pt-24">
         
-        {/* Storage Bar */}
-        <StorageBar usedBytes={totalUsedBytes} />
+        {/* Top 2-Column Section (Main Upload & Side Analytics) */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-10 items-stretch">
+          {/* Left Main Column (7 cols): StorageBar + DropZone */}
+          <div className="lg:col-span-7 flex flex-col justify-between gap-6">
+            <StorageBar usedBytes={totalUsedBytes} />
 
-        {/* Storage Analytics Widget */}
-        <StorageAnalyticsWidget files={files} />
+            <div>
+              {uploadError && (
+                <div className="mb-4 p-4 rounded-xl bg-error-container text-on-error-container border border-error/20 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="material-symbols-outlined text-[20px] text-error">error</span>
+                    <span className="text-body-sm font-medium">{uploadError}</span>
+                  </div>
+                  <button onClick={() => setUploadError(null)} className="text-on-error-container hover:text-error">
+                    <span className="material-symbols-outlined text-[18px]">close</span>
+                  </button>
+                </div>
+              )}
 
-        {/* Upload Section */}
-        <section className="mb-10">
-          {uploadError && (
-            <div className="mb-4 p-4 rounded-xl bg-error-container text-on-error-container border border-error/20 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-[20px] text-error">error</span>
-                <span className="text-body-sm font-medium">{uploadError}</span>
-              </div>
-              <button onClick={() => setUploadError(null)} className="text-on-error-container hover:text-error">
-                <span className="material-symbols-outlined text-[18px]">close</span>
-              </button>
+              <DropZone 
+                onUpload={handleUpload} 
+                uploading={uploading} 
+                uploadProgress={uploadProgress} 
+              />
             </div>
-          )}
+          </div>
 
-          <DropZone 
-            onUpload={handleUpload} 
-            uploading={uploading} 
-            uploadProgress={uploadProgress} 
-          />
-        </section>
+          {/* Right Side Column (5 cols): Storage Analytics Sidebar Card */}
+          <div className="lg:col-span-5">
+            <StorageAnalyticsWidget files={files} />
+          </div>
+        </div>
 
         {/* Search & Category Filter Bar (Feature #1) */}
         <section className="mb-8 bg-surface-container-lowest dark:bg-slate-900 border border-outline-variant/20 dark:border-slate-800 rounded-2xl p-4 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">

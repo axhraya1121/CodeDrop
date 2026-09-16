@@ -74,18 +74,16 @@ export default function StorageAnalyticsWidget({ files }: StorageAnalyticsWidget
     };
   }, [files]);
 
-  if (files.length === 0) return null;
-
   return (
-    <div className="bg-surface-container-lowest dark:bg-slate-900 border border-outline-variant/20 dark:border-slate-800 rounded-2xl p-6 shadow-sm mb-8 flex flex-col gap-5">
+    <div className="bg-surface-container-lowest dark:bg-slate-900 border border-outline-variant/20 dark:border-slate-800 rounded-2xl p-6 shadow-sm flex flex-col gap-5 h-full">
       {/* Widget Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="material-symbols-outlined text-[22px] text-primary dark:text-primary-fixed-dim">analytics</span>
-          <h3 className="text-body-md font-bold text-on-surface dark:text-slate-100">Storage Distribution & Analytics</h3>
+          <h3 className="text-body-md font-bold text-on-surface dark:text-slate-100">Storage Distribution</h3>
         </div>
         <span className="text-label-sm font-mono text-on-surface-variant dark:text-slate-400">
-          {analytics.totalFiles} files • {analytics.formatSize(analytics.totalBytes)} stored
+          {analytics.totalFiles} files
         </span>
       </div>
 
@@ -101,17 +99,17 @@ export default function StorageAnalyticsWidget({ files }: StorageAnalyticsWidget
         ))}
       </div>
 
-      {/* Category Percentage Pills */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+      {/* Category Percentage List */}
+      <div className="flex flex-col gap-2.5">
         {analytics.breakdown.map((item) => (
-          <div key={item.key} className="flex flex-col p-2.5 rounded-xl bg-surface-container-low dark:bg-slate-800/60 border border-outline-variant/10 dark:border-slate-800">
-            <div className="flex items-center gap-1.5 mb-1">
-              <span className={`w-2.5 h-2.5 rounded-full ${item.color}`} />
+          <div key={item.key} className="flex items-center justify-between p-2.5 rounded-xl bg-surface-container-low dark:bg-slate-800/60 border border-outline-variant/10 dark:border-slate-800">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${item.color}`} />
               <span className="text-label-sm font-medium text-on-surface dark:text-slate-200 truncate">{item.label}</span>
             </div>
-            <div className="flex items-baseline justify-between font-mono mt-0.5">
-              <span className="text-body-sm font-bold text-on-surface dark:text-slate-100">{item.percent.toFixed(1)}%</span>
-              <span className="text-label-sm text-outline dark:text-slate-400">{item.formattedSize}</span>
+            <div className="flex items-center gap-2 font-mono text-label-sm shrink-0">
+              <span className="font-bold text-on-surface dark:text-slate-100">{item.percent.toFixed(1)}%</span>
+              <span className="text-outline dark:text-slate-400">({item.formattedSize})</span>
             </div>
           </div>
         ))}
@@ -119,15 +117,21 @@ export default function StorageAnalyticsWidget({ files }: StorageAnalyticsWidget
 
       {/* Quick Activity Stats */}
       {analytics.largestFile && (
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-t border-outline-variant/20 dark:border-slate-800 pt-4 text-label-sm font-mono text-on-surface-variant dark:text-slate-400 gap-2">
-          <div className="flex items-center gap-1.5">
-            <span className="material-symbols-outlined text-[16px] text-primary">equalizer</span>
-            <span>Largest Payload: <strong className="text-on-surface dark:text-slate-200">{analytics.largestFile.fileName}</strong> ({analytics.formatSize(analytics.largestFile.size)})</span>
+        <div className="flex flex-col border-t border-outline-variant/20 dark:border-slate-800 pt-4 text-label-sm font-mono text-on-surface-variant dark:text-slate-400 gap-2 mt-auto">
+          <div className="flex items-center justify-between">
+            <span className="flex items-center gap-1.5">
+              <span className="material-symbols-outlined text-[16px] text-primary">equalizer</span>
+              Largest File:
+            </span>
+            <span className="text-on-surface dark:text-slate-200 truncate max-w-[150px] font-semibold">{analytics.largestFile.fileName}</span>
           </div>
           {analytics.lastUploaded && (
-            <div className="flex items-center gap-1.5">
-              <span className="material-symbols-outlined text-[16px] text-tertiary dark:text-emerald-400">schedule</span>
-              <span>Latest Activity: <strong className="text-on-surface dark:text-slate-200">{analytics.lastUploaded.fileName}</strong></span>
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-[16px] text-tertiary dark:text-emerald-400">schedule</span>
+                Latest Activity:
+              </span>
+              <span className="text-on-surface dark:text-slate-200 truncate max-w-[150px] font-semibold">{analytics.lastUploaded.fileName}</span>
             </div>
           )}
         </div>
