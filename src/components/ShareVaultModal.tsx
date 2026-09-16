@@ -11,7 +11,7 @@ interface ShareVaultModalProps {
 }
 
 export default function ShareVaultModal({ isOpen, username, selectedIds = [], onClose, onCopied }: ShareVaultModalProps) {
-  const [expiryOption, setExpiryOption] = useState<'never' | '1_hour' | '24_hours' | '7_days'>('never');
+  const [expiryOption, setExpiryOption] = useState<'never' | '1_download' | '1_hour' | '24_hours' | '7_days'>('never');
 
   if (!isOpen) return null;
 
@@ -29,19 +29,26 @@ export default function ShareVaultModal({ isOpen, username, selectedIds = [], on
       expiresAt = now + 7 * 24 * 60 * 60 * 1000;
     }
 
+    const isBurn = expiryOption === '1_download';
+
     let url = '';
     if (isSelectedShare) {
       url = `${window.location.origin}/share/files?ids=${selectedIds.join(',')}`;
       if (expiresAt) url += `&expiresAt=${expiresAt}`;
+      if (isBurn) url += `&burn=true`;
     } else {
       url = `${window.location.origin}/share/vault/${username}`;
-      if (expiresAt) url += `?expiresAt=${expiresAt}`;
+      const params = [];
+      if (expiresAt) params.push(`expiresAt=${expiresAt}`);
+      if (isBurn) params.push(`burn=true`);
+      if (params.length > 0) url += `?${params.join('&')}`;
     }
 
     navigator.clipboard.writeText(url);
 
     const labels: Record<string, string> = {
       never: isSelectedShare ? `Link for ${selectedIds.length} files copied (No Expiration)!` : 'Vault link copied (No Expiration)!',
+      '1_download': 'Self-destructing link (1 Download - Burn After Read) copied!',
       '1_hour': 'Expiring link (1 Hour limit) copied!',
       '24_hours': 'Expiring link (24 Hours limit) copied!',
       '7_days': 'Expiring link (7 Days limit) copied!'
@@ -93,6 +100,7 @@ export default function ShareVaultModal({ isOpen, username, selectedIds = [], on
           <div className="flex flex-col gap-2">
             {[
               { id: 'never', title: 'Never (Default)', desc: 'Link remains active indefinitely' },
+              { id: '1_download', title: '🔥 1 Download (Burn After Read)', desc: 'Self-destructs immediately after 1 download' },
               { id: '1_hour', title: '🕒 1 Hour', desc: 'Expires 1 hour after link creation' },
               { id: '24_hours', title: '📅 24 Hours', desc: 'Expires 24 hours after link creation' },
               { id: '7_days', title: '📆 7 Days', desc: 'Expires 7 days after link creation' }

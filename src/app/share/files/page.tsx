@@ -19,6 +19,8 @@ function ShareBatchContent() {
   const rawIds = searchParams.get('ids') || '';
 
   const expiresAtParam = searchParams.get('expiresAt');
+  const isBurnParam = searchParams.get('burn') === 'true';
+  const burnStorageKey = `codedrop_burn_batch_${rawIds}_${expiresAtParam || 'burn'}`;
 
   const [files, setFiles] = useState<SharedFile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,6 +45,15 @@ function ShareBatchContent() {
         }
       }
 
+      if (isBurnParam && typeof window !== 'undefined') {
+        const alreadyBurned = localStorage.getItem(burnStorageKey);
+        if (alreadyBurned) {
+          setError('This self-destructing selection link has already been burned after download.');
+          setLoading(false);
+          return;
+        }
+      }
+
       try {
         const res = await fetch(`/api/public/files/batch?ids=${encodeURIComponent(rawIds)}`);
         if (res.ok) {
@@ -58,7 +69,7 @@ function ShareBatchContent() {
       }
     }
     loadBatchFiles();
-  }, [rawIds, expiresAtParam]);
+  }, [rawIds, expiresAtParam, isBurnParam, burnStorageKey]);
 
   const getFileIcon = (fileName: string): string => {
     const ext = fileName.split('.').pop()?.toLowerCase() || '';
@@ -83,7 +94,14 @@ function ShareBatchContent() {
     return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
+  const markBurnIfActive = () => {
+    if (isBurnParam && typeof window !== 'undefined') {
+      localStorage.setItem(burnStorageKey, 'burned');
+    }
+  };
+
   const handleDownload = (id: string) => {
+    markBurnIfActive();
     window.open(`/api/public/files/${id}/download`, '_blank');
   };
 
@@ -115,6 +133,7 @@ function ShareBatchContent() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+      markBurnIfActive();
     } catch (err) {
       console.error('ZIP generation error:', err);
     } finally {

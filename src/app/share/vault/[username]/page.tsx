@@ -27,6 +27,9 @@ function ShareVaultContent({ username }: { username: string }) {
   const [vault, setVault] = useState<VaultData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const isBurnParam = searchParams.get('burn') === 'true';
+  const burnStorageKey = `codedrop_burn_vault_${username}_${expiresAtParam || 'burn'}`;
+
   const [zipping, setZipping] = useState(false);
   const [previewFile, setPreviewFile] = useState<FileData | null>(null);
 
@@ -37,6 +40,16 @@ function ShareVaultContent({ username }: { username: string }) {
         const expTime = Number(expiresAtParam);
         if (!isNaN(expTime) && Date.now() > expTime) {
           setError('This shared vault link has expired.');
+          setLoading(false);
+          return;
+        }
+      }
+
+      // Check burn after read parameter
+      if (isBurnParam && typeof window !== 'undefined') {
+        const alreadyBurned = localStorage.getItem(burnStorageKey);
+        if (alreadyBurned) {
+          setError('This self-destructing vault link has already been burned after download.');
           setLoading(false);
           return;
         }
@@ -57,7 +70,7 @@ function ShareVaultContent({ username }: { username: string }) {
       }
     }
     loadVault();
-  }, [username, expiresAtParam]);
+  }, [username, expiresAtParam, isBurnParam, burnStorageKey]);
 
   const getFileIcon = (fileName: string): string => {
     const ext = fileName.split('.').pop()?.toLowerCase() || '';
@@ -82,7 +95,14 @@ function ShareVaultContent({ username }: { username: string }) {
     return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
+  const markBurnIfActive = () => {
+    if (isBurnParam && typeof window !== 'undefined') {
+      localStorage.setItem(burnStorageKey, 'burned');
+    }
+  };
+
   const handleDownload = (id: string) => {
+    markBurnIfActive();
     window.open(`/api/public/files/${id}/download`, '_blank');
   };
 
@@ -114,6 +134,7 @@ function ShareVaultContent({ username }: { username: string }) {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+      markBurnIfActive();
     } catch (err) {
       console.error('ZIP generation error:', err);
     } finally {
