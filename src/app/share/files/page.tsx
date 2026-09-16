@@ -18,6 +18,8 @@ function ShareBatchContent() {
   const searchParams = useSearchParams();
   const rawIds = searchParams.get('ids') || '';
 
+  const expiresAtParam = searchParams.get('expiresAt');
+
   const [files, setFiles] = useState<SharedFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -30,6 +32,15 @@ function ShareBatchContent() {
         setError('No files specified in shared link.');
         setLoading(false);
         return;
+      }
+
+      if (expiresAtParam) {
+        const expTime = Number(expiresAtParam);
+        if (!isNaN(expTime) && Date.now() > expTime) {
+          setError('This shared selection link has expired.');
+          setLoading(false);
+          return;
+        }
       }
 
       try {
@@ -47,7 +58,7 @@ function ShareBatchContent() {
       }
     }
     loadBatchFiles();
-  }, [rawIds]);
+  }, [rawIds, expiresAtParam]);
 
   const getFileIcon = (fileName: string): string => {
     const ext = fileName.split('.').pop()?.toLowerCase() || '';

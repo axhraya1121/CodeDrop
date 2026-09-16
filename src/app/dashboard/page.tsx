@@ -10,6 +10,7 @@ import FilePreviewModal from '@/components/FilePreviewModal';
 import GlobalDragOverlay from '@/components/GlobalDragOverlay';
 import StorageAnalyticsWidget from '@/components/StorageAnalyticsWidget';
 import ShareConfigModal from '@/components/ShareConfigModal';
+import ShareVaultModal from '@/components/ShareVaultModal';
 
 interface FileData {
   id: string;
@@ -33,6 +34,8 @@ export default function Dashboard() {
   const [filterCategory, setFilterCategory] = useState<'all' | 'documents' | 'media' | 'code' | 'zip'>('all');
   const [previewFile, setPreviewFile] = useState<FileData | null>(null);
   const [shareConfigModalFile, setShareConfigModalFile] = useState<FileData | null>(null);
+  const [shareVaultModalOpen, setShareVaultModalOpen] = useState(false);
+  const [shareVaultIsSelected, setShareVaultIsSelected] = useState(false);
   const [zipping, setZipping] = useState(false);
 
   const totalUsedBytes = files.reduce((acc, f) => acc + (f.size || 0), 0);
@@ -336,17 +339,14 @@ export default function Dashboard() {
   };
 
   const handleShareVault = () => {
-    const url = `${window.location.origin}/share/vault/${username}`;
-    navigator.clipboard.writeText(url);
-    showToast('Public vault link copied to clipboard!');
+    setShareVaultIsSelected(false);
+    setShareVaultModalOpen(true);
   };
 
   const handleShareSelected = () => {
-    const ids = Array.from(selectedIds);
-    if (ids.length === 0) return;
-    const url = `${window.location.origin}/share/files?ids=${ids.join(',')}`;
-    navigator.clipboard.writeText(url);
-    showToast(`Public link for ${ids.length} selected files copied to clipboard!`);
+    if (selectedIds.size === 0) return;
+    setShareVaultIsSelected(true);
+    setShareVaultModalOpen(true);
   };
 
   return (
@@ -363,10 +363,19 @@ export default function Dashboard() {
         onDownload={handleDownload}
       />
 
-      {/* Share Configuration Modal */}
+      {/* Share Single File Configuration Modal */}
       <ShareConfigModal
         file={shareConfigModalFile}
         onClose={() => setShareConfigModalFile(null)}
+        onCopied={showToast}
+      />
+
+      {/* Share Vault & Multi-File Selection Modal */}
+      <ShareVaultModal
+        isOpen={shareVaultModalOpen}
+        username={username}
+        selectedIds={shareVaultIsSelected ? Array.from(selectedIds) : []}
+        onClose={() => setShareVaultModalOpen(false)}
         onCopied={showToast}
       />
 

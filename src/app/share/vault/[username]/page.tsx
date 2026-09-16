@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import JSZip from 'jszip';
 import ThemeToggle from '@/components/ThemeToggle';
 import FilePreviewModal from '@/components/FilePreviewModal';
@@ -19,8 +20,9 @@ interface VaultData {
   files: FileData[];
 }
 
-export default function ShareVaultPage({ params }: { params: { username: string } }) {
-  const username = params.username;
+function ShareVaultContent({ username }: { username: string }) {
+  const searchParams = useSearchParams();
+  const expiresAtParam = searchParams.get('expiresAt');
 
   const [vault, setVault] = useState<VaultData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -30,6 +32,16 @@ export default function ShareVaultPage({ params }: { params: { username: string 
 
   useEffect(() => {
     async function loadVault() {
+      // Check link expiration parameter
+      if (expiresAtParam) {
+        const expTime = Number(expiresAtParam);
+        if (!isNaN(expTime) && Date.now() > expTime) {
+          setError('This shared vault link has expired.');
+          setLoading(false);
+          return;
+        }
+      }
+
       try {
         const res = await fetch(`/api/public/vault/${username}`);
         if (res.ok) {
@@ -45,7 +57,7 @@ export default function ShareVaultPage({ params }: { params: { username: string 
       }
     }
     loadVault();
-  }, [username]);
+  }, [username, expiresAtParam]);
 
   const getFileIcon = (fileName: string): string => {
     const ext = fileName.split('.').pop()?.toLowerCase() || '';
@@ -243,5 +255,17 @@ export default function ShareVaultPage({ params }: { params: { username: string 
         ) : null}
       </main>
     </div>
+  );
+}
+
+export default function ShareVaultPage({ params }: { params: { username: string } }) {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-background dark:bg-[#0b1324] flex items-center justify-center">
+        <span className="material-symbols-outlined animate-spin text-[36px] text-primary">progress_activity</span>
+      </div>
+    }>
+      <ShareVaultContent username={params.username} />
+    </Suspense>
   );
 }
