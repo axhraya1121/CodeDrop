@@ -1,10 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import JSZip from 'jszip';
 import Header from '@/components/Header';
 import DropZone from '@/components/DropZone';
 import FileRow from '@/components/FileRow';
 import StorageBar from '@/components/StorageBar';
+import FilePreviewModal from '@/components/FilePreviewModal';
+import GlobalDragOverlay from '@/components/GlobalDragOverlay';
 
 interface FileData {
   id: string;
@@ -22,6 +25,12 @@ export default function Dashboard() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [username, setUsername] = useState('User');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  
+  // New State Features
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterCategory, setFilterCategory] = useState<'all' | 'documents' | 'media' | 'code' | 'zip'>('all');
+  const [previewFile, setPreviewFile] = useState<FileData | null>(null);
+  const [zipping, setZipping] = useState(false);
 
   const totalUsedBytes = files.reduce((acc, f) => acc + (f.size || 0), 0);
 
@@ -65,11 +74,29 @@ export default function Dashboard() {
     fetchFiles();
   }, []);
 
+  // Filter & Search Logic (Feature #1)
+  const filteredFiles = useMemo(() => {
+    return files.filter((file) => {
+      const nameMatch = file.fileName.toLowerCase().includes(searchQuery.toLowerCase());
+      if (!nameMatch) return false;
+
+      if (filterCategory === 'all') return true;
+      const ext = file.fileName.split('.').pop()?.toLowerCase() || '';
+
+      if (filterCategory === 'documents') return ['pdf', 'doc', 'docx', 'txt', 'md', 'rtf'].includes(ext);
+      if (filterCategory === 'media') return ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'mp4', 'webm', 'mov', 'avi', 'mp3', 'wav'].includes(ext);
+      if (filterCategory === 'code') return ['js', 'ts', 'jsx', 'tsx', 'py', 'c', 'cpp', 'java', 'html', 'css', 'json', 'sh', 'sql', 'yml'].includes(ext);
+      if (filterCategory === 'zip') return ['zip', 'tar', 'gz', 'rar', '7z'].includes(ext);
+
+      return true;
+    });
+  }, [files, searchQuery, filterCategory]);
+
   const toggleSelectAll = () => {
-    if (selectedIds.size === files.length && files.length > 0) {
+    if (selectedIds.size === filteredFiles.length && filteredFiles.length > 0) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(files.map(f => f.id)));
+      setSelectedIds(new Set(filteredFiles.map(f => f.id)));
     }
   };
 
@@ -250,6 +277,50 @@ export default function Dashboard() {
     }
   };
 
+  // ZIP Download Logic (Feature #5)
+  const handleDownloadZip = async (selectedOnly = false) => {
+    const targetList = selectedOnly 
+      ? files.filter(f => selectedIds.has(f.id))
+      : files;
+
+    if (targetList.length === 0) return;
+
+    setZipping(true);
+    showToast(`Packaging ${targetList.length} files into ZIP archive...`);
+
+    try {
+      const zip = new JSZip();
+
+      for (const file of targetList) {
+        try {
+          const res = await fetch(`/api/files/${file.id}/download`);
+          if (res.ok) {
+            const blob = await res.blob();
+            zip.file(file.fileName, blob);
+          }
+        } catch (err) {
+          console.error(`Failed to fetch ${file.fileName} for ZIP:`, err);
+        }
+      }
+
+      const content = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(content);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = selectedOnly ? `codedrop-selected-${username}.zip` : `codedrop-vault-${username}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      showToast('ZIP archive downloaded successfully!');
+    } catch (err) {
+      setUploadError('Failed to generate ZIP package.');
+    } finally {
+      setZipping(false);
+    }
+  };
+
   const handleDownload = (id: string) => {
     window.open(`/api/files/${id}/download`, '_blank');
   };
@@ -267,9 +338,19 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-background text-on-surface">
+    <div className="min-h-screen bg-background text-on-surface relative">
       <Header username={username} />
       
+      {/* Global Drag and Drop Overlay (Feature #6) */}
+      <GlobalDragOverlay onDropFiles={handleUpload} />
+
+      {/* File Preview Modal (Feature #2) */}
+      <FilePreviewModal
+        file={previewFile}
+        onClose={() => setPreviewFile(null)}
+        onDownload={handleDownload}
+      />
+
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 bg-surface-container-lowest dark:bg-slate-900 text-on-surface dark:text-slate-100 px-4 py-3 rounded-xl shadow-lg border border-primary/30 dark:border-primary-fixed-dim/30 flex items-center gap-2 font-mono text-label-md animate-bounce">
@@ -284,7 +365,7 @@ export default function Dashboard() {
         <StorageBar usedBytes={totalUsedBytes} />
 
         {/* Upload Section */}
-        <section className="mb-12">
+        <section className="mb-10">
           {uploadError && (
             <div className="mb-4 p-4 rounded-xl bg-error-container text-on-error-container border border-error/20 flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -304,6 +385,53 @@ export default function Dashboard() {
           />
         </section>
 
+        {/* Search & Category Filter Bar (Feature #1) */}
+        <section className="mb-8 bg-surface-container-lowest dark:bg-slate-900 border border-outline-variant/20 dark:border-slate-800 rounded-2xl p-4 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
+          {/* Search Input */}
+          <div className="relative flex items-center w-full md:max-w-md">
+            <span className="material-symbols-outlined absolute left-3.5 text-outline dark:text-slate-400 text-[20px]">search</span>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search files by name or extension (e.g. .pdf, code)..."
+              className="w-full h-10 pl-10 pr-4 bg-surface-container-low dark:bg-slate-800/80 rounded-xl text-body-sm text-on-surface dark:text-slate-100 placeholder:text-outline/70 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-primary focus:bg-surface-container-lowest transition-colors border border-transparent dark:border-slate-700/50"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 text-outline dark:text-slate-400 hover:text-on-surface dark:hover:text-slate-100"
+              >
+                <span className="material-symbols-outlined text-[16px]">cancel</span>
+              </button>
+            )}
+          </div>
+
+          {/* Filter Pills */}
+          <div className="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto pb-1 md:pb-0">
+            {[
+              { id: 'all', label: 'All Files' },
+              { id: 'documents', label: 'Docs' },
+              { id: 'media', label: 'Media' },
+              { id: 'code', label: 'Code' },
+              { id: 'zip', label: 'Archives' },
+            ].map((cat) => (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => setFilterCategory(cat.id as any)}
+                className={`px-3 py-1.5 rounded-lg text-label-sm font-mono font-medium transition-colors shrink-0 ${
+                  filterCategory === cat.id
+                    ? 'bg-primary dark:bg-primary-container text-on-primary shadow-sm'
+                    : 'bg-surface-container dark:bg-slate-800 text-on-surface-variant dark:text-slate-400 hover:text-on-surface dark:hover:text-slate-200'
+                }`}
+              >
+                {cat.label}
+              </button>
+            ))}
+          </div>
+        </section>
+
         {/* Files Section */}
         <section>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
@@ -311,12 +439,25 @@ export default function Dashboard() {
               <h2 className="text-headline-md font-bold text-on-surface dark:text-slate-100">Your Files</h2>
               {!loading && (
                 <span className="px-2.5 py-0.5 rounded-full bg-surface-container dark:bg-slate-800 text-on-surface-variant dark:text-slate-300 text-label-sm font-mono">
-                  {files.length}
+                  {filteredFiles.length} of {files.length}
                 </span>
               )}
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
+              {/* Download Selected as ZIP */}
+              {selectedIds.size > 0 && (
+                <button
+                  type="button"
+                  onClick={() => handleDownloadZip(true)}
+                  disabled={zipping}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary dark:text-primary-fixed-dim font-mono text-label-sm font-semibold transition-colors border border-primary/20"
+                >
+                  <span className="material-symbols-outlined text-[18px]">folder_zip</span>
+                  ZIP Selected ({selectedIds.size})
+                </button>
+              )}
+
               {/* Delete Selected Button */}
               {selectedIds.size > 0 && (
                 <button
@@ -326,6 +467,20 @@ export default function Dashboard() {
                 >
                   <span className="material-symbols-outlined text-[18px]">delete</span>
                   Delete Selected ({selectedIds.size})
+                </button>
+              )}
+
+              {/* Download All as ZIP (Feature #5) */}
+              {files.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => handleDownloadZip(false)}
+                  disabled={zipping}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-container dark:bg-slate-800 hover:bg-primary/10 text-primary dark:text-primary-fixed-dim font-mono text-label-sm font-semibold transition-colors border border-outline-variant/30 dark:border-slate-700"
+                  title="Compress and download all files into a single ZIP archive"
+                >
+                  <span className="material-symbols-outlined text-[18px]">download_for_offline</span>
+                  Download ZIP
                 </button>
               )}
 
@@ -359,17 +514,20 @@ export default function Dashboard() {
             <div className="flex justify-center p-12">
               <span className="material-symbols-outlined animate-spin text-[32px] text-primary dark:text-primary-fixed-dim">progress_activity</span>
             </div>
-          ) : files.length === 0 ? (
+          ) : filteredFiles.length === 0 ? (
             <div className="bg-surface-container-lowest dark:bg-slate-900 rounded-2xl shadow-sm border border-outline-variant/20 dark:border-slate-800 p-12 flex flex-col items-center justify-center text-center">
               <div className="w-20 h-20 mb-5 rounded-3xl bg-surface-container dark:bg-slate-800 flex items-center justify-center text-on-surface-variant dark:text-slate-300 relative">
-                <span className="material-symbols-outlined text-[40px]">vault</span>
-                <div className="absolute -bottom-2 -right-2 w-8 h-8 rounded-full bg-primary flex items-center justify-center text-on-primary shadow-sm">
-                  <span className="material-symbols-outlined text-[18px]">upload</span>
-                </div>
+                <span className="material-symbols-outlined text-[40px]">
+                  {searchQuery || filterCategory !== 'all' ? 'search_off' : 'vault'}
+                </span>
               </div>
-              <h3 className="text-headline-sm font-bold text-on-surface dark:text-slate-100 mb-2">No files uploaded yet</h3>
+              <h3 className="text-headline-sm font-bold text-on-surface dark:text-slate-100 mb-2">
+                {searchQuery || filterCategory !== 'all' ? 'No matching files found' : 'No files uploaded yet'}
+              </h3>
               <p className="text-body-md text-on-surface-variant dark:text-slate-400 max-w-md">
-                Drop a file above or click to upload your first private file.
+                {searchQuery || filterCategory !== 'all' 
+                  ? 'Try changing your search keywords or filter category.' 
+                  : 'Drop a file above or click to upload your first private file.'}
               </p>
             </div>
           ) : (
@@ -379,7 +537,7 @@ export default function Dashboard() {
                 <div className="col-span-6 flex items-center gap-3 text-label-sm text-on-surface-variant dark:text-slate-400 uppercase tracking-wider font-mono font-medium">
                   <input
                     type="checkbox"
-                    checked={selectedIds.size === files.length && files.length > 0}
+                    checked={selectedIds.size === filteredFiles.length && filteredFiles.length > 0}
                     onChange={toggleSelectAll}
                     className="w-4 h-4 rounded border-outline dark:border-slate-600 text-primary focus:ring-primary focus:ring-offset-0 cursor-pointer"
                     title="Select All Files"
@@ -393,7 +551,7 @@ export default function Dashboard() {
               
               {/* File List */}
               <div className="flex flex-col">
-                {files.map((file) => (
+                {filteredFiles.map((file) => (
                   <FileRow 
                     key={file.id} 
                     file={file} 
@@ -402,6 +560,7 @@ export default function Dashboard() {
                     onDownload={handleDownload} 
                     onDelete={handleDelete}
                     onShare={handleShareFile}
+                    onPreview={(f) => setPreviewFile(f)}
                   />
                 ))}
               </div>

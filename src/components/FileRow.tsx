@@ -16,6 +16,7 @@ interface FileRowProps {
   onDownload: (id: string) => void;
   onDelete: (id: string) => void;
   onShare: (id: string) => void;
+  onPreview: (file: FileData) => void;
 }
 
 export default function FileRow({ 
@@ -24,7 +25,8 @@ export default function FileRow({
   onSelectToggle, 
   onDownload, 
   onDelete, 
-  onShare 
+  onShare,
+  onPreview
 }: FileRowProps) {
   const [copied, setCopied] = useState(false);
 
@@ -87,10 +89,17 @@ export default function FileRow({
           onClick={(e) => e.stopPropagation()}
           className="w-4 h-4 rounded border-outline dark:border-slate-600 text-primary focus:ring-primary focus:ring-offset-0 cursor-pointer shrink-0"
         />
-        <div className="w-10 h-10 shrink-0 rounded-xl bg-surface-container dark:bg-slate-800 flex items-center justify-center text-primary dark:text-primary-fixed-dim shadow-sm">
+        <div 
+          onClick={() => onPreview(file)}
+          className="w-10 h-10 shrink-0 rounded-xl bg-surface-container dark:bg-slate-800 flex items-center justify-center text-primary dark:text-primary-fixed-dim shadow-sm cursor-pointer hover:bg-primary/10 transition-colors"
+          title="Click to preview file"
+        >
           <span className="material-symbols-outlined text-[22px]">{getFileIcon(file.fileName)}</span>
         </div>
-        <div className="flex flex-col min-w-0">
+        <div 
+          onClick={() => onPreview(file)}
+          className="flex flex-col min-w-0 cursor-pointer"
+        >
           <span className="text-body-md font-semibold text-on-surface dark:text-slate-100 truncate group-hover:text-primary dark:group-hover:text-primary-fixed-dim transition-colors">
             {file.fileName}
           </span>
@@ -121,6 +130,19 @@ export default function FileRow({
           <span className="text-body-sm">• {formatDate(file.uploadedAt)}</span>
         </div>
         
+        {/* Preview Button */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onPreview(file);
+          }}
+          className="w-9 h-9 flex items-center justify-center rounded-lg text-on-surface-variant dark:text-slate-400 hover:text-primary dark:hover:text-primary-fixed-dim hover:bg-primary/10 dark:hover:bg-primary/20 transition-colors focus:outline-none"
+          title="Preview File"
+        >
+          <span className="material-symbols-outlined text-[20px]">visibility</span>
+        </button>
+
         {/* Share Button */}
         <button
           type="button"
