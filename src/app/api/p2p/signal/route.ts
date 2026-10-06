@@ -52,22 +52,26 @@ export async function GET(request: NextRequest) {
 
     let offer: any = null;
     let answer: any = null;
-    const candidates: any[] = [];
+    const senderCandidates: any[] = [];
+    const receiverCandidates: any[] = [];
 
     for (const sig of signals) {
       if (sig.type === 'offer') {
         offer = sig.payload;
       } else if (sig.type === 'answer') {
         answer = sig.payload;
-      } else if (sig.type === 'candidate') {
-        candidates.push(sig.payload);
+      } else if (sig.type === 'sender_candidate' || sig.type === 'candidate') {
+        senderCandidates.push(sig.payload);
+      } else if (sig.type === 'receiver_candidate') {
+        receiverCandidates.push(sig.payload);
       }
     }
 
     return NextResponse.json({
       offer,
       answer,
-      candidates,
+      senderCandidates,
+      receiverCandidates,
     });
   } catch (error: any) {
     console.error('Signal GET Error:', error);
