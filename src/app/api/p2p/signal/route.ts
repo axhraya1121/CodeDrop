@@ -14,10 +14,21 @@ export async function POST(request: NextRequest) {
 
     const cleanRoomId = roomId.toLowerCase().trim();
 
-    // If a new offer is posted, delete old signals for this room to avoid stale handshake conflicts
+    // If posting an offer or answer, replace any prior offer/answer for this room
+    // but DO NOT delete candidates to prevent race conditions during ICE gathering
     if (type === 'offer') {
       await prisma.p2PSignal.deleteMany({
-        where: { roomId: cleanRoomId }
+        where: {
+          roomId: cleanRoomId,
+          type: { in: ['offer', 'answer'] },
+        },
+      });
+    } else if (type === 'answer') {
+      await prisma.p2PSignal.deleteMany({
+        where: {
+          roomId: cleanRoomId,
+          type: 'answer',
+        },
       });
     }
 
@@ -76,5 +87,25 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     console.error('Signal GET Error:', error);
     return NextResponse.json({ error: 'Failed to fetch P2P signals' }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const roomId = request.nextUrl.searchParams.get('roomId');
+    if (!roomId) {
+      return NextResponse.json({ error: 'roomId is required' }, { status: 400 });
+    }
+
+    const cleanRoomId = roomId.toLowerCase().trim();
+
+    await prisma.p2PSignal.deleteMany({
+      where: { roomId: cleanRoomId },
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (error: any) {
+    console.error('Signal DELETE Error:', error);
+    return NextResponse.json({ error: 'Failed to delete P2P signals' }, { status: 500 });
   }
 }

@@ -9,11 +9,23 @@ interface P2PTransferModalProps {
 
 const CHUNK_SIZE = 64 * 1024; // 64 KB binary chunks
 
+const STUN_SERVERS = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun2.l.google.com:19302' },
+  { urls: 'stun:stun3.l.google.com:19302' },
+  { urls: 'stun:stun4.l.google.com:19302' },
+  { urls: 'stun:stun.cloudflare.com:3478' },
+  { urls: 'stun:stun.nextcloud.com:443' },
+  { urls: 'stun:stun.nextcloud.com:3478' },
+];
+
 export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PTransferModalProps) {
   const [role, setRole] = useState<'sender' | 'receiver'>(initialRoomId ? 'receiver' : 'sender');
   const [p2pCode, setP2pCode] = useState<string>(initialRoomId ? initialRoomId.replace(/^p2p-/, '') : '');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [status, setStatus] = useState<'idle' | 'waiting_for_receiver' | 'connecting' | 'transferring' | 'finishing' | 'completed'>('idle');
+  const [statusMessage, setStatusMessage] = useState<string>('');
   const [progress, setProgress] = useState<number>(0);
   const [transferredBytes, setTransferredBytes] = useState<number>(0);
   const [transferSpeed, setTransferSpeed] = useState<string>('0 MB/s');
@@ -33,6 +45,7 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
   const startTimeRef = useRef<number>(0);
   const signalIntervalRef = useRef<any>(null);
   const hasAutoConnectedRef = useRef<boolean>(false);
+  const hasDownloadedRef = useRef<boolean>(false);
 
   const getCleanRoomId = (code: string) => {
     return `p2p-${code.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
@@ -41,13 +54,24 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
   // Cleanup WebRTC connection and polling timer on unmount
   useEffect(() => {
     return () => {
-      if (signalIntervalRef.current) clearInterval(signalIntervalRef.current);
-      if (pcRef.current) {
-        pcRef.current.close();
-        pcRef.current = null;
-      }
+      cleanupConnection();
     };
   }, []);
+
+  const cleanupConnection = () => {
+    if (signalIntervalRef.current) {
+      clearInterval(signalIntervalRef.current);
+      signalIntervalRef.current = null;
+    }
+    if (dcRef.current) {
+      try { dcRef.current.close(); } catch (e) {}
+      dcRef.current = null;
+    }
+    if (pcRef.current) {
+      try { pcRef.current.close(); } catch (e) {}
+      pcRef.current = null;
+    }
+  };
 
   // Generate 6-digit numeric code for Sender
   useEffect(() => {
@@ -71,30 +95,16 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
     }
   }, [initialRoomId, role, status, p2pCode]);
 
-  const setupPeerConnection = (roleType: 'sender' | 'receiver') => {
-    if (pcRef.current) {
-      pcRef.current.close();
-      pcRef.current = null;
-    }
+  const setupPeerConnection = (roleType: 'sender' | 'receiver', roomCode: string) => {
+    cleanupConnection();
 
     const pc = new RTCPeerConnection({
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' },
-        { urls: 'stun:stun3.l.google.com:19302' },
-        { urls: 'stun:stun4.l.google.com:19302' },
-        { urls: 'stun:global.stun.twilio.com:3478' },
-        { urls: 'stun:openrelay.metered.ca:80' },
-        { urls: 'turn:openrelay.metered.ca:80', username: 'openrelay', credential: 'openrelay' },
-        { urls: 'turn:openrelay.metered.ca:443', username: 'openrelay', credential: 'openrelay' },
-        { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelay', credential: 'openrelay' }
-      ],
+      iceServers: STUN_SERVERS,
     });
 
     pc.onicecandidate = async (event) => {
-      if (event.candidate && p2pCode) {
-        const roomId = getCleanRoomId(p2pCode);
+      if (event.candidate && roomCode) {
+        const roomId = getCleanRoomId(roomCode);
         const signalType = roleType === 'sender' ? 'sender_candidate' : 'receiver_candidate';
         await fetch('/api/p2p/signal', {
           method: 'POST',
@@ -108,6 +118,24 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
       }
     };
 
+    pc.onconnectionstatechange = () => {
+      console.log(`[WebRTC] connectionState: ${pc.connectionState}`);
+      if (pc.connectionState === 'connected') {
+        setStatusMessage('Direct P2P channel established!');
+      } else if (pc.connectionState === 'failed') {
+        setErrorMsg('P2P connection failed. Your network or firewall may restrict direct WebRTC peer connections.');
+      } else if (pc.connectionState === 'disconnected') {
+        console.warn('[WebRTC] peer disconnected');
+      }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log(`[WebRTC] iceConnectionState: ${pc.iceConnectionState}`);
+      if (pc.iceConnectionState === 'failed') {
+        setErrorMsg('NAT traversal failed. Could not establish direct route between peers.');
+      }
+    };
+
     pcRef.current = pc;
     return pc;
   };
@@ -118,11 +146,17 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
 
     setErrorMsg(null);
     setStatus('waiting_for_receiver');
+    setStatusMessage('Waiting for receiver to join with code...');
     const roomId = getCleanRoomId(p2pCode);
-    const pc = setupPeerConnection('sender');
 
-    // Create DataChannel
-    const dc = pc.createDataChannel('codedropP2P');
+    // 1. Purge stale signals for this room code before starting
+    await fetch(`/api/p2p/signal?roomId=${roomId}`, { method: 'DELETE' }).catch(() => {});
+
+    // 2. Initialize RTCPeerConnection
+    const pc = setupPeerConnection('sender', p2pCode);
+
+    // 3. Create DataChannel
+    const dc = pc.createDataChannel('codedropP2P', { ordered: true });
     dc.binaryType = 'arraybuffer';
     dcRef.current = dc;
 
@@ -133,6 +167,7 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
           if (msg.type === 'ACK') {
             if (signalIntervalRef.current) clearInterval(signalIntervalRef.current);
             setStatus('completed');
+            setStatusMessage('Transfer confirmed by receiver!');
           }
         } catch (err) {}
       }
@@ -140,6 +175,7 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
 
     const startSending = () => {
       setStatus('transferring');
+      setStatusMessage('Direct stream active');
       sendFileInChunks(dc, selectedFile);
     };
 
@@ -151,18 +187,31 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
 
     dc.onerror = (err) => {
       console.error('Sender DataChannel error:', err);
-      setErrorMsg('DataChannel error occurred. Please check firewall / NAT settings.');
+      setErrorMsg('DataChannel error occurred during transmission.');
     };
 
-    dc.onclose = () => {
-      console.log('Sender DataChannel closed');
-    };
-
-    // Create SDP Offer
+    // 4. Create and set local SDP Offer
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
 
-    // Send SDP Offer with file metadata
+    // 5. Wait up to 600ms for initial ICE candidates to gather into local description
+    await new Promise<void>((resolve) => {
+      if (pc.iceGatheringState === 'complete') {
+        resolve();
+      } else {
+        const timer = setTimeout(resolve, 600);
+        const onGather = () => {
+          if (pc.iceGatheringState === 'complete') {
+            clearTimeout(timer);
+            pc.removeEventListener('icegatheringstatechange', onGather);
+            resolve();
+          }
+        };
+        pc.addEventListener('icegatheringstatechange', onGather);
+      }
+    });
+
+    // 6. Post SDP Offer with file metadata
     await fetch('/api/p2p/signal', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -170,16 +219,18 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
         roomId,
         type: 'offer',
         payload: {
-          sdp: offer,
+          sdp: pc.localDescription || offer,
           fileName: selectedFile.name,
           fileSize: selectedFile.size,
         },
       }),
     });
 
-    // Poll DB for SDP Answer & Receiver ICE Candidates
+    // 7. Poll DB for SDP Answer & Receiver ICE Candidates
     const processedCandidates = new Set<string>();
     const pendingCandidates: any[] = [];
+    let isSettingRemote = false;
+    let remoteSet = false;
 
     signalIntervalRef.current = setInterval(async () => {
       try {
@@ -187,19 +238,30 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
         if (!res.ok) return;
         const data = await res.json();
 
-        if (data.answer && !pc.currentRemoteDescription) {
-          await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-          for (const cand of pendingCandidates) {
-            await pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {});
+        // Handle SDP Answer
+        if (data.answer && !remoteSet && !isSettingRemote) {
+          isSettingRemote = true;
+          try {
+            await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+            remoteSet = true;
+            for (const cand of pendingCandidates) {
+              await pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {});
+            }
+            pendingCandidates.length = 0;
+          } catch (err) {
+            console.error('Sender setRemoteDescription error:', err);
+          } finally {
+            isSettingRemote = false;
           }
         }
 
+        // Handle Receiver ICE Candidates
         if (Array.isArray(data.receiverCandidates)) {
           for (const cand of data.receiverCandidates) {
             const key = JSON.stringify(cand);
             if (!processedCandidates.has(key)) {
               processedCandidates.add(key);
-              if (pc.remoteDescription) {
+              if (remoteSet && pc.remoteDescription) {
                 await pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {});
               } else {
                 pendingCandidates.push(cand);
@@ -231,6 +293,9 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
 
     await new Promise((resolve) => setTimeout(resolve, 50));
 
+    // Configure DataChannel backpressure
+    dc.bufferedAmountLowThreshold = 64 * 1024;
+
     // 2. Stream binary chunks
     while (offset < total) {
       if (dc.readyState === 'closed' || dc.readyState === 'closing') {
@@ -243,10 +308,14 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
         continue;
       }
 
-      // Handle backpressure buffer (pause if buffer > 1MB)
-      if (dc.bufferedAmount > 16 * CHUNK_SIZE) {
-        await new Promise((resolve) => setTimeout(resolve, 30));
-        continue;
+      // Respect backpressure threshold (wait if buffer > 1MB)
+      if (dc.bufferedAmount > 1024 * 1024) {
+        await new Promise<void>((resolve) => {
+          dc.onbufferedamountlow = () => {
+            dc.onbufferedamountlow = null;
+            resolve();
+          };
+        });
       }
 
       const slice = file.slice(offset, offset + CHUNK_SIZE);
@@ -273,8 +342,9 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
     }
 
     setStatus('finishing');
+    setStatusMessage('Awaiting receiver confirmation...');
 
-    // Fallback: If ACK isn't received within 8 seconds, mark as completed anyway
+    // Fallback: If ACK isn't received within 6 seconds, complete anyway
     setTimeout(() => {
       setStatus((prev) => {
         if (prev === 'finishing') {
@@ -283,7 +353,7 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
         }
         return prev;
       });
-    }, 8000);
+    }, 6000);
   };
 
   // RECEIVER FLOW
@@ -291,14 +361,16 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
     if (!p2pCode) return;
     setErrorMsg(null);
     setStatus('connecting');
+    setStatusMessage('Looking up transfer code...');
 
     const roomId = getCleanRoomId(p2pCode);
-    const pc = setupPeerConnection('receiver');
+    const pc = setupPeerConnection('receiver', p2pCode);
 
-    // Reset chunks & refs
+    // Reset chunks & state
     receivedChunksRef.current = [];
     receivedBytesRef.current = 0;
     receivedFileSizeRef.current = 0;
+    hasDownloadedRef.current = false;
 
     // Listen for incoming DataChannel
     pc.ondatachannel = (event) => {
@@ -308,6 +380,7 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
 
       const handleOpen = () => {
         setStatus('transferring');
+        setStatusMessage('Streaming from sender');
         startTimeRef.current = Date.now();
       };
 
@@ -318,12 +391,13 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
       }
 
       dc.onclose = () => {
-        if (receivedChunksRef.current.length > 0 && receivedBytesRef.current > 0) {
+        if (receivedChunksRef.current.length > 0 && receivedBytesRef.current > 0 && !hasDownloadedRef.current) {
           triggerFileDownload(dc);
         }
       };
 
       dc.onmessage = (e) => {
+        // Handle control messages
         if (typeof e.data === 'string') {
           try {
             const msg = JSON.parse(e.data);
@@ -338,11 +412,12 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
               triggerFileDownload(dc);
             }
           } catch (err) {
-            console.error('Failed to parse string message on receiver', err);
+            console.error('Receiver message parse error:', err);
           }
           return;
         }
 
+        // Handle binary chunks
         const chunk = e.data as ArrayBuffer;
         receivedChunksRef.current.push(chunk);
         receivedBytesRef.current += chunk.byteLength;
@@ -372,6 +447,8 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
     // Poll DB for Sender's SDP Offer & Sender ICE Candidates
     const processedCandidates = new Set<string>();
     const pendingCandidates: any[] = [];
+    let isHandlingOffer = false;
+    let offerSet = false;
 
     signalIntervalRef.current = setInterval(async () => {
       try {
@@ -379,44 +456,72 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
         if (!res.ok) return;
         const data = await res.json();
 
-        if (data.offer && !pc.currentRemoteDescription) {
-          const offerPayload = data.offer;
-          const fileName = offerPayload.fileName || 'p2p-shared-file';
-          const fileSize = offerPayload.fileSize || 0;
+        // Handle Offer
+        if (data.offer && !offerSet && !isHandlingOffer) {
+          isHandlingOffer = true;
+          try {
+            const offerPayload = data.offer;
+            const fileName = offerPayload.fileName || 'p2p-shared-file';
+            const fileSize = offerPayload.fileSize || 0;
 
-          receivedFileNameRef.current = fileName;
-          receivedFileSizeRef.current = fileSize;
-          setReceivedFileName(fileName);
-          setReceivedFileSize(fileSize);
+            receivedFileNameRef.current = fileName;
+            receivedFileSizeRef.current = fileSize;
+            setReceivedFileName(fileName);
+            setReceivedFileSize(fileSize);
 
-          await pc.setRemoteDescription(new RTCSessionDescription(offerPayload.sdp));
+            await pc.setRemoteDescription(new RTCSessionDescription(offerPayload.sdp));
+            offerSet = true;
 
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
 
-          // Post SDP Answer to DB
-          await fetch('/api/p2p/signal', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              roomId,
-              type: 'answer',
-              payload: answer,
-            }),
-          });
+            // Wait up to 600ms for initial candidates to gather into answer
+            await new Promise<void>((resolve) => {
+              if (pc.iceGatheringState === 'complete') {
+                resolve();
+              } else {
+                const timer = setTimeout(resolve, 600);
+                const onGather = () => {
+                  if (pc.iceGatheringState === 'complete') {
+                    clearTimeout(timer);
+                    pc.removeEventListener('icegatheringstatechange', onGather);
+                    resolve();
+                  }
+                };
+                pc.addEventListener('icegatheringstatechange', onGather);
+              }
+            });
 
-          // Flush queued candidates
-          for (const cand of pendingCandidates) {
-            await pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {});
+            // Post SDP Answer to DB
+            await fetch('/api/p2p/signal', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                roomId,
+                type: 'answer',
+                payload: pc.localDescription || answer,
+              }),
+            });
+
+            // Flush queued candidates
+            for (const cand of pendingCandidates) {
+              await pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {});
+            }
+            pendingCandidates.length = 0;
+          } catch (err) {
+            console.error('Receiver handleOffer error:', err);
+          } finally {
+            isHandlingOffer = false;
           }
         }
 
+        // Handle Sender ICE Candidates
         if (Array.isArray(data.senderCandidates)) {
           for (const cand of data.senderCandidates) {
             const key = JSON.stringify(cand);
             if (!processedCandidates.has(key)) {
               processedCandidates.add(key);
-              if (pc.remoteDescription) {
+              if (offerSet && pc.remoteDescription) {
                 await pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {});
               } else {
                 pendingCandidates.push(cand);
@@ -431,25 +536,35 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
   };
 
   const triggerFileDownload = (dc?: RTCDataChannel) => {
-    if (signalIntervalRef.current) clearInterval(signalIntervalRef.current);
+    if (hasDownloadedRef.current) return;
+    hasDownloadedRef.current = true;
+
+    if (signalIntervalRef.current) {
+      clearInterval(signalIntervalRef.current);
+      signalIntervalRef.current = null;
+    }
+
     const fileNameToSave = receivedFileNameRef.current || receivedFileName || 'downloaded-p2p-file';
     
     if (receivedChunksRef.current.length > 0) {
-      const blob = new Blob(receivedChunksRef.current);
+      const blob = new Blob(receivedChunksRef.current, { type: 'application/octet-stream' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = fileNameToSave;
       document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 1000);
     }
 
     setProgress(100);
     setStatus('completed');
+    setStatusMessage('Download finished');
 
-    // Send ACK back to Sender so Sender knows transfer actually succeeded
+    // Send ACK back to Sender
     const activeDc = dc || dcRef.current;
     if (activeDc && activeDc.readyState === 'open') {
       try {
@@ -488,8 +603,8 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
             <span className="material-symbols-outlined text-[24px]">bolt</span>
           </div>
           <div>
-            <h3 className="text-headline-sm font-bold text-on-surface dark:text-slate-100">WebRTC Direct P2P Transfer</h3>
-            <p className="text-label-sm text-on-surface-variant dark:text-slate-400">Zero cloud storage used • Unlimited file size</p>
+            <h3 className="text-headline-sm font-bold text-on-surface dark:text-slate-100">Direct P2P Transfer</h3>
+            <p className="text-label-sm text-on-surface-variant dark:text-slate-400">Zero cloud storage • Direct device-to-device streaming</p>
           </div>
         </div>
 
@@ -605,22 +720,31 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
               <div className="w-12 h-12 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
               <div>
                 <h4 className="text-headline-sm font-bold text-on-surface dark:text-slate-100">Waiting for receiver to connect...</h4>
-                <p className="text-body-sm text-on-surface-variant mt-1">Keep this tab open. Tell recipient to enter the code below.</p>
+                <p className="text-body-sm text-on-surface-variant mt-1">Keep this tab open. Share the code or link with the recipient.</p>
               </div>
 
               {/* Display 6-digit code box */}
               <div className="p-4 w-full bg-surface-container-low dark:bg-slate-800/60 rounded-2xl border border-outline-variant/30 flex flex-col items-center gap-2">
-                <span className="text-label-xs font-mono uppercase text-on-surface-variant font-semibold">Tell recipient to enter code:</span>
+                <span className="text-label-xs font-mono uppercase text-on-surface-variant font-semibold">Recipient should enter code:</span>
                 <div className="flex items-center gap-2 font-mono text-headline-xl font-bold tracking-[0.2em] text-primary dark:text-primary-fixed-dim">
                   {p2pCode}
                 </div>
-                <button
-                  onClick={handleCopyCode}
-                  className="px-3 py-1 bg-surface-container hover:bg-surface-container-high text-on-surface text-label-xs font-semibold rounded-lg flex items-center gap-1"
-                >
-                  <span className="material-symbols-outlined text-[14px]">{copiedCode ? 'check' : 'content_copy'}</span>
-                  <span>{copiedCode ? 'Code Copied!' : 'Copy Code'}</span>
-                </button>
+                <div className="flex items-center gap-2 mt-1">
+                  <button
+                    onClick={handleCopyCode}
+                    className="px-3 py-1 bg-surface-container hover:bg-surface-container-high text-on-surface text-label-xs font-semibold rounded-lg flex items-center gap-1"
+                  >
+                    <span className="material-symbols-outlined text-[14px]">{copiedCode ? 'check' : 'content_copy'}</span>
+                    <span>{copiedCode ? 'Code Copied!' : 'Copy Code'}</span>
+                  </button>
+                  <button
+                    onClick={handleCopyUrl}
+                    className="px-3 py-1 bg-surface-container hover:bg-surface-container-high text-on-surface text-label-xs font-semibold rounded-lg flex items-center gap-1"
+                  >
+                    <span className="material-symbols-outlined text-[14px]">{copiedUrl ? 'check' : 'link'}</span>
+                    <span>{copiedUrl ? 'Copied Link!' : 'Copy Link'}</span>
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -656,6 +780,7 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
               </p>
               <button
                 onClick={() => {
+                  cleanupConnection();
                   setStatus('idle');
                   setSelectedFile(null);
                   setP2pCode('');
@@ -738,6 +863,19 @@ export default function P2PTransferModal({ initialRoomId = null, onClose }: P2PT
               <p className="text-body-sm text-on-surface-variant font-mono">
                 Successfully received and saved '{receivedFileName}'.
               </p>
+              <button
+                onClick={() => {
+                  cleanupConnection();
+                  setStatus('idle');
+                  setP2pCode('');
+                  setReceivedFileName('');
+                  setReceivedFileSize(0);
+                  setProgress(0);
+                }}
+                className="mt-2 px-4 py-2 bg-surface-container text-on-surface font-semibold rounded-xl hover:bg-surface-container-high text-body-sm"
+              >
+                Receive Another File
+              </button>
             </div>
           )}
         </div>
